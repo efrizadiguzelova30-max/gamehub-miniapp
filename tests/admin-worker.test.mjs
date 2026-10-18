@@ -31,3 +31,19 @@ test("unknown API routes return 404", async () => {
   }), {});
   assert.equal(response.status, 404);
 });
+
+test("Telegram webhook requires a configured secret even without browser Origin", async () => {
+  const response = await worker.fetch(new Request("https://api.example.test/telegram/webhook", {
+    method: "POST", body: JSON.stringify({ update_id: 1 })
+  }), {});
+  assert.equal(response.status, 503);
+});
+
+test("Telegram webhook rejects an invalid secret", async () => {
+  const response = await worker.fetch(new Request("https://api.example.test/telegram/webhook", {
+    method: "POST",
+    headers: { "X-Telegram-Bot-Api-Secret-Token": "wrong-secret", "Content-Type": "application/json" },
+    body: JSON.stringify({ update_id: 1 })
+  }), { TELEGRAM_WEBHOOK_SECRET: "correct-secret", BOT_TOKEN: "test-token", DB: {} });
+  assert.equal(response.status, 403);
+});
