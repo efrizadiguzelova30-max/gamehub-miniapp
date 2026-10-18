@@ -327,12 +327,12 @@ $("#groupActionForm").addEventListener("submit", async event => {
   const userId = form.elements.userId.value.trim();
   const action = form.elements.action.value;
   if (!chatId || !/^\d{1,20}$/.test(userId)) { toast("Выбери группу и укажи числовой ID участника."); return; }
-  if (action === "ban" && !window.confirm("Заблокировать этого пользователя в выбранной группе?")) return;
+  if (["ban", "mute"].includes(action) && !window.confirm(action === "ban" ? "Заблокировать этого пользователя в выбранной группе?" : "Запретить участнику отправлять сообщения в выбранной группе?")) return;
   const submit = form.querySelector("button[type='submit']");
   submit.disabled = true;
   try {
     await adminRequest("/api/admin/group-action", { method: "POST", body: JSON.stringify({ chatId, userId, action }) });
-    toast(action === "ban" ? "Участник заблокирован." : "Блокировка снята.");
+    toast(({ ban: "Участник заблокирован.", unban: "Блокировка снята.", mute: "Участнику запрещено писать.", unmute: "Участнику снова разрешено писать." })[action] || "Действие выполнено.");
     form.elements.userId.value = "";
   } catch (error) {
     toast(error.message || "Telegram не выполнил действие. Проверь права бота.");
