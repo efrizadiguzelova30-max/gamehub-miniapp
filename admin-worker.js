@@ -64,10 +64,10 @@ async function handleTelegramWebhook(request, env) {
   if ((await getSetting(env.DB, "bot_enabled", "true")) !== "true") return json({ ok: true, disabled: true });
 
   const chatId = message.chat.id;
-  const command = message.text.trim().split(/\\s+/)[0].split("@")[0].toLowerCase();
+  const command = message.text.trim().split(/\s+/)[0].split("@")[0].toLowerCase();
   const commands = {
     "/start": "Привет! Я бот GameHub. Используй /help, чтобы увидеть доступные команды.",
-    "/help": "Команды GameHub:\\n/start — запуск\\n/help — помощь\\n/status — состояние сервиса\\n/groupid — ID текущего чата (в группах).",
+    "/help": "Команды GameHub:\n/start — запуск\n/help — помощь\n/status — состояние сервиса\n/groupid — ID текущего чата (в группах).",
     "/status": "Состояние GameHub: бот включён. Настройки сайта и права управления доступны владельцу через защищённую мини-панель."
   };
   if (command === "/groupid") {
