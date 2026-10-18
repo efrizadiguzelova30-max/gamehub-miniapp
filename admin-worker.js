@@ -146,14 +146,18 @@ export default {async fetch(request,env){
   if(url.pathname==="/api/admin/group-action"&&request.method==="POST"){
     let b;try{b=await bodyJson(request)}catch(e){return json({error:e.message==="TOO_LARGE"?"Слишком большой запрос.":"Некорректный JSON."},e.message==="TOO_LARGE"?413:400)}
     const chatId=String(b.chatId||"").trim(),userId=String(b.userId||"").trim(),action=b.action;
-    if(!/^-?\d{1,20}$/.test(chatId)||!/^\d{1,20}$/.test(userId)||!["ban","unban"].includes(action))return json({error:"Проверь ID группы, ID пользователя и действие."},400);
+    if(!/^-?\d{1,20}$/.test(chatId)||!/^\d{1,20}$/.test(userId)||!["ban","unban","mute","unmute"].includes(action))return json({error:"Проверь ID группы, ID пользователя и действие."},400);
     const group=await db.prepare("SELECT chat_id FROM managed_groups WHERE chat_id=?").bind(chatId).first();
     if(!group)return json({error:"Эта группа не зарегистрирована в GameHub."},404);
     if(!env.BOT_TOKEN)return json({error:"BOT_TOKEN не настроен."},503);
-    const method=action==="ban"?"banChatMember":"unbanChatMember";
+    const method=action==="ban"?"banChatMember":action==="unban"?"unbanChatMember":"restrictChatMember";
+    const payload={chat_id:chatId,user_id:Number(userId)};
+    if(action==="unban")payload.only_if_banned=true;
+    if(action==="mute") { payload.permissions={can_send_messages:false,can_send_audios:false,can_send_documents:false,can_send_photos:false,can_send_videos:false,can_send_video_notes:false,can_send_voice_notes:false,can_send_polls:false,can_send_other_messages:false,can_add_web_page_previews:false}; payload.use_independent_chat_permissions=true; }
+    if(action==="unmute") { payload.permissions={can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,can_send_other_messages:true,can_add_web_page_previews:true}; payload.use_independent_chat_permissions=true; }
     let upstream;
     try{
-      upstream=await fetch("https://api.telegram.org/bot"+env.BOT_TOKEN+"/"+method,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,user_id:Number(userId),only_if_banned:action==="unban"})});
+      upstream=await fetch("https://api.telegram.org/bot"+env.BOT_TOKEN+"/"+method,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
     }catch{return json({error:"Не удалось связаться с Telegram."},502)}
     const result=await upstream.json().catch(()=>({}));
     if(!upstream.ok||result.ok!==true)return json({error:"Telegram отклонил действие. Проверь ID и права бота в группе."},502);
