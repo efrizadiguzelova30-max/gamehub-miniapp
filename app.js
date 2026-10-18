@@ -346,3 +346,80 @@ $("#groupActionForm").addEventListener("submit", async event => {
     toast(error.message || "Telegram не выполнил действие. Проверь права бота.");
   } finally { submit.disabled = false; }
 });
+
+
+// Safe OSINT tools: public IP metadata and links to public username search.
+function osintShowResult(box, lines) {
+  box.replaceChildren();
+  for (const line of lines) {
+    const p = document.createElement("p");
+    p.textContent = String(line);
+    box.append(p);
+  }
+}
+$("#osintIpForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const form = e.currentTarget;
+  if (form.elements.website?.value) return;
+  const ip = $("#osintIp").value.trim();
+  const box = $("#osintIpResult");
+  const validChars = /^[0-9a-fA-F:.]+$/.test(ip);
+  const isIPv4 = /^(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(ip);
+  const isIPv6Like = ip.includes(":") && validChars && ip.length <= 45;
+  if (!validChars || (!isIPv4 && !isIPv6Like) || ip.length > 45) {
+    osintShowResult(box, ["Введи корректный публичный IPv4 или IPv6 адрес. Доменные имена в этом поле не поддерживаются."]);
+    return;
+  }
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = "Проверяем…";
+  osintShowResult(box, ["Запрашиваем открытые сетевые сведения."]);
+  try {
+    const response = await fetch("https://hackmyip.com/api/lookup?ip=" + encodeURIComponent(ip), {headers: {"Accept":"application/json"}});
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const json = await response.json();
+    const d = json && json.data ? json.data : json;
+    const loc = d.location || {};
+    const net = d.network || {};
+    const privacy = d.privacy || {};
+    const lines = [
+      "IP: " + String(d.ip || ip),
+      "Страна: " + String(loc.country_name || loc.country || "нет данных"),
+      "Регион: " + String(loc.region || "нет данных"),
+      "Город (примерно): " + String(loc.city || "нет данных"),
+      "Провайдер/организация: " + String(net.isp || d.isp || "нет данных"),
+      "ASN: " + String(net.asn || d.asn || "нет данных"),
+      "VPN/прокси: " + (privacy.is_vpn === true ? "возможно используется VPN" : privacy.proxy === true ? "обнаружен прокси" : "не подтверждено"),
+      "Важно: геолокация приблизительная; результат не устанавливает личность или домашний адрес."
+    ];
+    osintShowResult(box, lines);
+  } catch (err) {
+    osintShowResult(box, ["Не удалось получить данные. Сервис может быть временно недоступен или блокировать запросы браузера.", "Попробуй позже либо проверь IP на официальном сайте поставщика."]);
+  } finally {
+    btn.disabled = false; btn.textContent = "Проверить бесплатно";
+  }
+});
+$("#osintUserForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const username = $("#osintUsername").value.trim();
+  const box = $("#osintUserResult");
+  if (!/^[A-Za-z0-9_.-]{2,40}$/.test(username)) {
+    osintShowResult(box, ["Допустимы латинские буквы, цифры, точка, подчёркивание и дефис; от 2 до 40 символов."]);
+    return;
+  }
+  box.replaceChildren();
+  const p = document.createElement("p");
+  p.textContent = "Поиск открытых страниц по никнейму: " + username + ". Одинаковые никнеймы не доказывают, что профили принадлежат одному человеку.";
+  box.append(p);
+  const links = [
+    ["Google", "https://www.google.com/search?q=" + encodeURIComponent('"' + username + '"')],
+    ["GitHub", "https://github.com/search?q=" + encodeURIComponent(username) + "&type=users"],
+    ["Reddit", "https://www.reddit.com/search/?q=" + encodeURIComponent(username)],
+    ["YouTube", "https://www.youtube.com/results?search_query=" + encodeURIComponent(username)]
+  ];
+  for (const [label, href] of links) {
+    const a = document.createElement("a");
+    a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.className = "copy-id"; a.textContent = label + " ↗";
+    box.append(a);
+  }
+});
