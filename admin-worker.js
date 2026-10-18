@@ -80,7 +80,8 @@ async function handleTelegramWebhook(request, env) {
   }
   return json({ ok: true });
 }
-\nexport default {async fetch(request,env){
+
+export default {async fetch(request,env){
   const url=new URL(request.url);
   if(url.pathname==="/telegram/webhook")return request.method==="POST"?handleTelegramWebhook(request,env):json({error:"Method not allowed."},405);
   if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
