@@ -54,3 +54,50 @@ test("admin group list cannot be read before backend authentication is configure
   }), {});
   assert.equal(response.status, 503);
 });
+
+
+test("Telegram /help command handles ordinary whitespace and sends real newlines", async () => {
+  const originalFetch = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (url, options) => {
+    sent.push({ url: String(url), body: JSON.parse(options.body) });
+    return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+  };
+  const db = {
+    prepare(sql) {
+      return {
+        bind() { return this; },
+        async first() { return null; }
+      };
+    }
+  };
+  try {
+    const response = await worker.fetch(new Request("https://api.example.test/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "X-Telegram-Bot-Api-Secret-Token": "test-secret",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        update_id: 7,
+        message: {
+          text: "   /help   ",
+          chat: { id: 123, type: "private" },
+          from: { id: 123 }
+        }
+      })
+    }), {
+      TELEGRAM_WEBHOOK_SECRET: "test-secret",
+      BOT_TOKEN: "test-token",
+      DB: db
+    });
+    assert.equal(response.status, 200);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].url, /sendMessage$/);
+    assert.equal(sent[0].body.chat_id, 123);
+    assert.ok(sent[0].body.text.includes("\n/start"));
+    assert.equal(sent[0].body.text.includes("\\n"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
