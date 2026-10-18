@@ -1,0 +1,42 @@
+name: GameHub quality checks
+
+on:
+  push:
+    branches: [main, "automation/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: node --check app.js
+      - name: Check required site files
+        run: |
+          test -s index.html
+          test -s style.css
+          test -s app.js
+      - name: Check for accidental placeholder secrets
+        shell: bash
+        run: |
+          if grep -Eiq '(AIza[0-9A-Za-z_-]{30,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' app.js index.html style.css; then
+            echo "Potential secret detected in public client files."
+            exit 1
+          fi
+      - name: Check external links use safe target attributes
+        shell: bash
+        run: |
+          if grep -E 'target="_blank"' index.html | grep -v 'rel="noopener noreferrer"'; then
+            echo "External target=_blank link is missing rel=noopener noreferrer."
+            exit 1
+          fi
