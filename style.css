@@ -157,3 +157,18 @@ button:disabled{opacity:.6;cursor:wait;transform:none}
 #view-admin .admin-add-form input, #view-admin .admin-add-form select { width:100%; min-width:0; padding:12px 13px; color:var(--text); background:#0d111b; border:1px solid var(--line); border-radius:10px; }
 #view-admin [hidden] { display:none !important; }
 @media(max-width:640px){#view-admin .admin-controls{grid-template-columns:1fr}#view-admin .admin-list-panel{padding:14px}}
+
+
+/* Free OSINT tools */
+#view-osint .osint-notice { margin: 12px 0 18px; border-color: #4d78a866; background: linear-gradient(135deg,#16263a,#151a29); }
+#view-osint .osint-notice b { display:block; margin-bottom:8px; color:#9ecbff; }
+#view-osint .osint-notice p { margin:0; color:var(--muted); line-height:1.7; }
+#view-osint .osint-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+#view-osint .tool-card { min-width:0; }
+#view-osint .osint-form { display:grid; gap:9px; margin-top:14px; }
+#view-osint .osint-form label { color:var(--muted); font-size:13px; }
+#view-osint .osint-form input { width:100%; min-width:0; box-sizing:border-box; padding:12px 13px; color:var(--text); background:#0d111b; border:1px solid var(--line); border-radius:10px; }
+#view-osint .result-box { overflow-wrap:anywhere; line-height:1.6; }
+#view-osint .result-box p { margin:7px 0; }
+#view-osint .result-box a { display:inline-block; margin:6px 6px 0 0; }
+@media(max-width:640px){#view-osint .osint-grid{grid-template-columns:1fr}}
