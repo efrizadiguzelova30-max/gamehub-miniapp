@@ -40,10 +40,52 @@ async function auth(request,env){
   if(!row||!["admin","co_owner"].includes(row.role))return{error:json({error:"Нет прав доступа."},403)};
   return{user,role:row.role};
 }
+
+async function telegramSend(env, chatId, text) {
+  if (!env.BOT_TOKEN) return;
+  await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true })
+  });
+}
+
+async function handleTelegramWebhook(request, env) {
+  if (!env.TELEGRAM_WEBHOOK_SECRET) return json({ error: "Webhook secret is not configured." }, 503);
+  const supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "";
+  if (!equal(supplied, env.TELEGRAM_WEBHOOK_SECRET)) return json({ error: "Forbidden." }, 403);
+  if (!env.DB || !env.BOT_TOKEN) return json({ error: "Bot service is not configured." }, 503);
+  let update;
+  try { update = await bodyJson(request); }
+  catch (error) { return json({ error: error.message === "TOO_LARGE" ? "Payload too large." : "Invalid JSON." }, error.message === "TOO_LARGE" ? 413 : 400); }
+
+  const message = update && (update.message || update.edited_message);
+  if (!message || !message.chat || !message.from || typeof message.text !== "string") return json({ ok: true });
+  if ((await getSetting(env.DB, "bot_enabled", "true")) !== "true") return json({ ok: true, disabled: true });
+
+  const chatId = message.chat.id;
+  const command = message.text.trim().split(/\\s+/)[0].split("@")[0].toLowerCase();
+  const commands = {
+    "/start": "Привет! Я бот GameHub. Используй /help, чтобы увидеть доступные команды.",
+    "/help": "Команды GameHub:\\n/start — запуск\\n/help — помощь\\n/status — состояние сервиса\\n/groupid — ID текущего чата (в группах).",
+    "/status": "Состояние GameHub: бот включён. Настройки сайта и права управления доступны владельцу через защищённую мини-панель."
+  };
+  if (command === "/groupid") {
+    const type = message.chat.type;
+    await telegramSend(env, chatId, type === "group" || type === "supergroup"
+      ? "ID этой группы: " + String(chatId) + ". Передавай его только доверенным администраторам."
+      : "Команда /groupid предназначена для групп и супергрупп.");
+  } else if (commands[command]) {
+    await telegramSend(env, chatId, commands[command]);
+  }
+  return json({ ok: true });
+}
+
 export default {async fetch(request,env){
+  const url=new URL(request.url);
+  if(url.pathname==="/telegram/webhook")return request.method==="POST"?handleTelegramWebhook(request,env):json({error:"Method not allowed."},405);
   if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
   if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
-  const url=new URL(request.url);
   if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
   if(!url.pathname.startsWith("/api/admin/"))return json({error:"Not found."},404);
   if(!["GET","POST","DELETE"].includes(request.method))return json({error:"Method not allowed."},405);
