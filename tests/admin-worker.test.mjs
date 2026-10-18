@@ -47,3 +47,10 @@ test("Telegram webhook rejects an invalid secret", async () => {
   }), { TELEGRAM_WEBHOOK_SECRET: "correct-secret", BOT_TOKEN: "test-token", DB: {} });
   assert.equal(response.status, 403);
 });
+
+test("admin group list cannot be read before backend authentication is configured", async () => {
+  const response = await worker.fetch(new Request("https://api.example.test/api/admin/groups", {
+    headers: { Origin: origin }
+  }), {});
+  assert.equal(response.status, 503);
+});
