@@ -27,5 +27,51 @@ $("#featuredGames").innerHTML=games.slice(0,4).map(gameCard).join("");renderGame
 // Public Roblox username lookup. Client-side throttling is only a basic UX safeguard, not server-side anti-abuse protection.
 function allowedLookup(){const now=Date.now();lookupTimes=lookupTimes.filter(t=>now-t<60000);if(now-lastLookup<2500){toast("Подожди пару секунд перед следующим поиском.");return false}if(lookupTimes.length>=5){toast("Лимит: не больше 5 поисков в минуту.");return false}lastLookup=now;lookupTimes.push(now);return true}
 $("#robloxForm").addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget;if(form.elements.website.value){toast("Запрос отклонён.");return}const username=$("#robloxUsername").value.trim();const box=$("#robloxResult");if(!/^[A-Za-z0-9_]{3,20}$/.test(username)){box.textContent="Проверь имя: от 3 до 20 символов, только буквы, цифры и _.";return}if(!allowedLookup())return;const btn=$("#robloxSubmit");btn.disabled=true;btn.textContent="Ищем…";box.textContent="Идёт запрос к публичному поиску Roblox…";try{const response=await fetch("https://users.roblox.com/v1/usernames/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({usernames:[username],excludeBannedUsers:false})});if(!response.ok)throw new Error("HTTP "+response.status);const data=await response.json();const matches=Array.isArray(data.data)?data.data:[];if(!matches.length){box.textContent="Пользователь не найден. Проверь точное имя и попробуй позже.";return}const user=matches[0];const safeName=String(user.name||username);const display=String(user.displayName||safeName);const id=Number(user.id);if(!Number.isSafeInteger(id)||id<1)throw new Error("Invalid ID");box.innerHTML='<div class="result-user"><div class="result-avatar">🎮</div><div><b></b><small></small><small>ID: '+id+'</small></div></div><button class="copy-id" id="copyRobloxId">Копировать ID</button> <a class="copy-id" href="https://www.roblox.com/users/'+id+'/profile" target="_blank" rel="noopener noreferrer">Открыть профиль ↗</a>';box.querySelector("b").textContent=display;box.querySelectorAll("small")[0].textContent="@"+safeName;$("#copyRobloxId").onclick=async()=>{try{await navigator.clipboard.writeText(String(id));toast("ID скопирован")}catch(err){toast("Не удалось скопировать. Выдели ID вручную.")}}}catch(err){box.textContent="Не удалось получить ответ Roblox. Возможно, запрос заблокирован браузером (CORS) или сервис временно недоступен. Открой официальный поиск Roblox и попробуй позже."; }finally{btn.disabled=false;btn.textContent="Найти ID"}});
-// AI chat deliberately remains a transparent demo until a secure backend is connected.
-$("#chatForm").addEventListener("submit",e=>{e.preventDefault();const form=e.currentTarget;if(form.elements.contact.value){toast("Сообщение отклонено.");return}const now=Date.now();chatTimes=chatTimes.filter(t=>now-t<60000);if(chatTimes.length>=5){toast("Лимит демо-чата: 5 сообщений в минуту.");return}const text=$("#chatInput").value.trim();if(!text)return;chatTimes.push(now);const user=document.createElement("div");user.className="message user-message";user.textContent=text;$("#chatMessages").append(user);const reply=document.createElement("div");reply.className="message bot-message";reply.textContent="ИИ-сервер ещё не подключён, поэтому я не могу сгенерировать ответ. Для настоящего ответа потребуется backend. Пока можешь открыть каталог игр и прочитать советы. Не отправляй пароли, коды или личные данные.";$("#chatMessages").append(reply);$("#chatInput").value="";$("#chatMessages").scrollTop=$("#chatMessages").scrollHeight});
+// Real AI chat uses a Cloudflare Worker proxy. Never put the Gemini API key in this file.
+const GAMEHUB_AI_ENDPOINT = "PASTE_CLOUDFLARE_WORKER_URL_HERE";
+$("#chatForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const form = e.currentTarget;
+  if (form.elements.contact.value) { toast("Сообщение отклонено."); return; }
+  const now = Date.now();
+  chatTimes = chatTimes.filter(t => now - t < 60000);
+  if (chatTimes.length >= 5) { toast("Лимит: 5 сообщений в минуту. Попробуй позже."); return; }
+  const text = $("#chatInput").value.trim();
+  if (!text) return;
+  if (GAMEHUB_AI_ENDPOINT === "PASTE_CLOUDFLARE_WORKER_URL_HERE") {
+    toast("Сначала подключи адрес Cloudflare Worker по инструкции.");
+    const reply = document.createElement("div");
+    reply.className = "message bot-message";
+    reply.textContent = "ИИ почти готов. Осталось создать Cloudflare Worker, добавить секрет GEMINI_API_KEY и вставить адрес Worker в настройку сайта.";
+    $("#chatMessages").append(reply);
+    return;
+  }
+  chatTimes.push(now);
+  const send = $("#chatForm button[type='submit']");
+  send.disabled = true;
+  const user = document.createElement("div");
+  user.className = "message user-message";
+  user.textContent = text;
+  $("#chatMessages").append(user);
+  $("#chatInput").value = "";
+  const reply = document.createElement("div");
+  reply.className = "message bot-message";
+  reply.textContent = "Думаю…";
+  $("#chatMessages").append(reply);
+  $("#chatMessages").scrollTop = $("#chatMessages").scrollHeight;
+  try {
+    const response = await fetch(GAMEHUB_AI_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Сервис временно недоступен (" + response.status + ").");
+    reply.textContent = String(data.reply || "ИИ не вернул текст ответа.");
+  } catch (err) {
+    reply.textContent = "Не удалось связаться с ИИ. Проверь адрес Worker и настройки. " + (err.message || "");
+  } finally {
+    send.disabled = false;
+    $("#chatMessages").scrollTop = $("#chatMessages").scrollHeight;
+  }
+});
