@@ -20,9 +20,13 @@ jobs:
         with:
           node-version: 22
       - name: Check JavaScript syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check admin-worker.js
       - name: Validate page structure and navigation
         run: node scripts/validate-site.mjs
+      - name: Run backend safety tests
+        run: node --test tests/*.test.mjs
       - name: Check required site files
         run: |
           test -s index.html
