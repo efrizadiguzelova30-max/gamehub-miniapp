@@ -83,7 +83,8 @@ async function handleTelegramWebhook(request, env) {
 \nexport default {async fetch(request,env){
   if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
   if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
-  const url=new URL(request.url);\n  if(url.pathname==="/telegram/webhook"&&request.method==="POST")return handleTelegramWebhook(request,env);
+  const url=new URL(request.url);
+  if(url.pathname==="/telegram/webhook"&&request.method==="POST")return handleTelegramWebhook(request,env);
   if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
   if(!url.pathname.startsWith("/api/admin/"))return json({error:"Not found."},404);
   if(!["GET","POST","DELETE"].includes(request.method))return json({error:"Method not allowed."},405);
