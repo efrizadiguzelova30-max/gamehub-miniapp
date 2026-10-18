@@ -159,6 +159,60 @@ async function loadAdminList() {
   }
 }
 
+async function loadGroupList() {
+  const list = $("#managedGroupList");
+  const select = $("#moderationGroup");
+  list.replaceChildren();
+  select.replaceChildren();
+  const data = await adminRequest("/api/admin/groups");
+  const groups = Array.isArray(data.groups) ? data.groups : [];
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = groups.length ? "Выбери группу" : "Сначала добавь группу";
+  select.append(placeholder);
+  for (const group of groups) {
+    const option = document.createElement("option");
+    option.value = String(group.chat_id);
+    option.textContent = String(group.title) + " (" + String(group.chat_id) + ")";
+    select.append(option);
+    const row = document.createElement("div");
+    row.className = "admin-row";
+    const details = document.createElement("div");
+    const name = document.createElement("b");
+    name.textContent = String(group.title);
+    const id = document.createElement("small");
+    id.textContent = "ID: " + String(group.chat_id);
+    details.append(name, id);
+    row.append(details);
+    if (["owner", "co_owner"].includes(adminActor.role)) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn secondary";
+      remove.textContent = "Убрать";
+      remove.addEventListener("click", async () => {
+        if (!window.confirm("Убрать группу из управления GameHub? Это не удалит саму группу в Telegram.")) return;
+        remove.disabled = true;
+        try {
+          await adminRequest("/api/admin/groups?chatId=" + encodeURIComponent(String(group.chat_id)), { method: "DELETE" });
+          toast("Группа убрана из списка.");
+          await loadGroupList();
+        } catch (error) {
+          toast(error.message || "Не удалось убрать группу.");
+          remove.disabled = false;
+        }
+      });
+      row.append(remove);
+    }
+    list.append(row);
+  }
+  if (!groups.length) {
+    const empty = document.createElement("p");
+    empty.className = "subtle-note";
+    empty.textContent = "Группы ещё не добавлены. Используй /groupid в нужной группе, чтобы узнать её ID.";
+    list.append(empty);
+  }
+}
+
 async function loadAdminPanel() {
   if (!adminConfigured) return;
   const tg = window.Telegram && window.Telegram.WebApp;
@@ -167,12 +221,18 @@ async function loadAdminPanel() {
     const data = await adminRequest("/api/admin/status");
     adminActor = data.actor || null;
     adminFlags = { siteLocked: Boolean(data.siteLocked), botEnabled: Boolean(data.botEnabled) };
-    if (adminActor && adminActor.role === "owner") {
+    if (adminActor && ["owner", "admin", "co_owner"].includes(adminActor.role)) {
       adminNav.hidden = false;
-      $("#adminIdentity").textContent = "Вход подтверждён через Telegram. Уровень доступа: владелец.";
-      $("#ownerControls").hidden = false;
-      renderAdminFlags();
-      await loadAdminList();
+      $("#adminIdentity").textContent = "Вход подтверждён через Telegram. Уровень доступа: " +
+        (adminActor.role === "owner" ? "владелец" : adminActor.role === "co_owner" ? "совладелец" : "администратор") + ".";
+      $("#ownerControls").hidden = adminActor.role !== "owner";
+      $("#groupControls").hidden = false;
+      $("#groupAddForm").hidden = !["owner", "co_owner"].includes(adminActor.role);
+      if (adminActor.role === "owner") {
+        renderAdminFlags();
+        await loadAdminList();
+      }
+      await loadGroupList();
     }
   } catch (error) {
     if (error.message && !error.message.includes("Нет прав доступа")) {
@@ -238,5 +298,43 @@ $("#adminAddForm").addEventListener("submit", async event => {
     await loadAdminList();
   } catch (error) {
     toast(error.message || "Не удалось сохранить роль.");
+  } finally { submit.disabled = false; }
+});
+
+$("#groupAddForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!adminActor || !["owner", "co_owner"].includes(adminActor.role)) { toast("Недостаточно прав для добавления группы."); return; }
+  const form = event.currentTarget;
+  const chatId = form.elements.chatId.value.trim();
+  const title = form.elements.title.value.trim();
+  if (!/^-?\d{1,20}$/.test(chatId) || !title) { toast("Проверь ID и название группы."); return; }
+  const submit = form.querySelector("button[type='submit']");
+  submit.disabled = true;
+  try {
+    await adminRequest("/api/admin/groups", { method: "POST", body: JSON.stringify({ chatId, title }) });
+    form.reset();
+    toast("Группа добавлена.");
+    await loadGroupList();
+  } catch (error) {
+    toast(error.message || "Не удалось добавить группу.");
+  } finally { submit.disabled = false; }
+});
+
+$("#groupActionForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const chatId = form.elements.chatId.value;
+  const userId = form.elements.userId.value.trim();
+  const action = form.elements.action.value;
+  if (!chatId || !/^\d{1,20}$/.test(userId)) { toast("Выбери группу и укажи числовой ID участника."); return; }
+  if (action === "ban" && !window.confirm("Заблокировать этого пользователя в выбранной группе?")) return;
+  const submit = form.querySelector("button[type='submit']");
+  submit.disabled = true;
+  try {
+    await adminRequest("/api/admin/group-action", { method: "POST", body: JSON.stringify({ chatId, userId, action }) });
+    toast(action === "ban" ? "Участник заблокирован." : "Блокировка снята.");
+    form.elements.userId.value = "";
+  } catch (error) {
+    toast(error.message || "Telegram не выполнил действие. Проверь права бота.");
   } finally { submit.disabled = false; }
 });
