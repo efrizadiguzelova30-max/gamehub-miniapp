@@ -27,7 +27,7 @@ This is a backend starting point, not a deployed admin panel. GitHub Pages only 
 - GET /api/admin/groups — any authenticated GameHub admin/co-owner/owner.
 - POST /api/admin/groups with chatId and title — owner or co-owner.
 - DELETE /api/admin/groups?chatId=-1001234567890 — owner or co-owner.
-- POST /api/admin/group-action with chatId, userId and action=ban|unban — authenticated admin; the bot must have suitable Telegram group permissions.
+- POST /api/admin/group-action with chatId, userId and action=ban|unban|mute|unmute — authenticated admin; the bot must have suitable Telegram group permissions.
 - POST /telegram/webhook — Telegram webhook secured by TELEGRAM_WEBHOOK_SECRET; currently implements basic bot commands only.
 
 Send Telegram WebApp initData in X-Telegram-Init-Data, never initDataUnsafe. Do not weaken authentication or hardcode a test token.
