@@ -145,3 +145,15 @@ button:disabled{opacity:.6;cursor:wait;transform:none}
 .admin-row small{font-size:10px;color:var(--muted);margin-top:4px}
 .admin-row .btn{flex-shrink:0}
 @media(max-width:520px){.admin-controls{grid-template-columns:1fr}.admin-add-form{grid-template-columns:1fr}.admin-add-form button{width:100%}.admin-row{align-items:flex-start}.admin-row .btn{padding:9px 10px}}
+
+
+/* Owner panel visibility and safe setup state */
+#view-admin .info-card { margin: 16px 0 22px; border-color: #8e72ff66; background: linear-gradient(135deg, #211d35, #151a29); }
+#view-admin .info-card b { display:block; margin-bottom:8px; color:#c7b9ff; }
+#view-admin .info-card p { margin:0; color:var(--muted); line-height:1.7; }
+#view-admin .admin-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+#view-admin .admin-list-panel { margin-top:18px; padding:20px; border:1px solid var(--line); border-radius:18px; background:#121621b8; }
+#view-admin .admin-add-form { display:grid; gap:10px; max-width:520px; }
+#view-admin .admin-add-form input, #view-admin .admin-add-form select { width:100%; min-width:0; padding:12px 13px; color:var(--text); background:#0d111b; border:1px solid var(--line); border-radius:10px; }
+#view-admin [hidden] { display:none !important; }
+@media(max-width:640px){#view-admin .admin-controls{grid-template-columns:1fr}#view-admin .admin-list-panel{padding:14px}}
