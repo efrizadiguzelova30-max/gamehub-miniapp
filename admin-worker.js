@@ -53,7 +53,7 @@ async function telegramSend(env, chatId, text) {
 async function handleTelegramWebhook(request, env) {
   if (!env.TELEGRAM_WEBHOOK_SECRET) return json({ error: "Webhook secret is not configured." }, 503);
   const supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "";
-  if (!constantTimeEqual(supplied, env.TELEGRAM_WEBHOOK_SECRET)) return json({ error: "Forbidden." }, 403);
+  if (!equal(supplied, env.TELEGRAM_WEBHOOK_SECRET)) return json({ error: "Forbidden." }, 403);
   if (!env.DB || !env.BOT_TOKEN) return json({ error: "Bot service is not configured." }, 503);
   let update;
   try { update = await bodyJson(request); }
