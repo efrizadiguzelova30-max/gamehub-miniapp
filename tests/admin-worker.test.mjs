@@ -95,8 +95,8 @@ test("Telegram /help command handles ordinary whitespace and sends real newlines
     assert.equal(sent.length, 1);
     assert.match(sent[0].url, /sendMessage$/);
     assert.equal(sent[0].body.chat_id, 123);
-    assert.match(sent[0].body.text, /\\n\\/start/);
-    assert.equal(sent[0].body.text.includes("\\\\n"), false);
+    assert.ok(sent[0].body.text.includes("\n/start"));
+    assert.equal(sent[0].body.text.includes("\\n"), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
