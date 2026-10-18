@@ -75,3 +75,168 @@ $("#chatForm").addEventListener("submit", async e => {
     $("#chatMessages").scrollTop = $("#chatMessages").scrollHeight;
   }
 });
+
+
+// Owner tools are dormant until the Cloudflare Worker is deployed and configured.
+// Authentication uses Telegram WebApp initData, verified server-side by the Worker.
+const ADMIN_API_ENDPOINT = "PASTE_CLOUDFLARE_ADMIN_WORKER_URL_HERE";
+const adminConfigured = /^https:\/\//.test(ADMIN_API_ENDPOINT) && !ADMIN_API_ENDPOINT.includes("PASTE_");
+const adminNav = $("#adminNav");
+const maintenanceBanner = $("#maintenanceBanner");
+let adminActor = null;
+let adminFlags = { siteLocked: false, botEnabled: true };
+
+async function adminRequest(path, options = {}) {
+  if (!adminConfigured) throw new Error("Админ-сервер ещё не подключён.");
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (!tg || !tg.initData) throw new Error("Открой GameHub внутри Telegram, чтобы подтвердить личность.");
+  const headers = new Headers(options.headers || {});
+  headers.set("X-Telegram-Init-Data", tg.initData);
+  if (options.body) headers.set("Content-Type", "application/json");
+  const response = await fetch(ADMIN_API_ENDPOINT.replace(/\/+$/, "") + path, {
+    ...options, headers, cache: "no-store"
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "Ошибка сервера (" + response.status + ").");
+  return data;
+}
+
+function renderAdminFlags() {
+  $("#siteLockStatus").textContent = adminFlags.siteLocked
+    ? "Включён режим обслуживания. Статические файлы GitHub Pages всё ещё публичны."
+    : "Обычный режим сайта.";
+  $("#adminLockToggle").textContent = adminFlags.siteLocked ? "Выключить режим обслуживания" : "Включить режим обслуживания";
+  $("#botStatus").textContent = adminFlags.botEnabled
+    ? "В базе указано, что бот должен работать. Сам процесс бота должен читать этот флаг."
+    : "В базе указано, что бот выключен. Фоновый процесс должен соблюдать этот флаг.";
+  $("#adminBotToggle").textContent = adminFlags.botEnabled ? "Выключить бота" : "Включить бота";
+  if (maintenanceBanner) {
+    maintenanceBanner.hidden = !adminFlags.siteLocked;
+    maintenanceBanner.textContent = adminFlags.siteLocked
+      ? "GameHub находится на техническом обслуживании. Некоторые функции временно ограничены."
+      : "";
+  }
+}
+
+async function loadAdminList() {
+  const list = $("#adminList");
+  list.replaceChildren();
+  const data = await adminRequest("/api/admin/admins");
+  if (!data.admins || !data.admins.length) {
+    const empty = document.createElement("p");
+    empty.className = "subtle-note";
+    empty.textContent = "Дополнительных администраторов пока нет.";
+    list.append(empty);
+    return;
+  }
+  for (const entry of data.admins) {
+    const row = document.createElement("div");
+    row.className = "admin-row";
+    const details = document.createElement("div");
+    const id = document.createElement("b");
+    id.textContent = "Telegram ID: " + String(entry.telegram_id);
+    const role = document.createElement("small");
+    role.textContent = entry.role === "co_owner" ? "Совладелец" : "Администратор";
+    details.append(id, role);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "btn secondary";
+    remove.textContent = "Удалить";
+    remove.addEventListener("click", async () => {
+      if (!window.confirm("Удалить роль у Telegram ID " + entry.telegram_id + "?")) return;
+      remove.disabled = true;
+      try {
+        await adminRequest("/api/admin/admins?telegramId=" + encodeURIComponent(String(entry.telegram_id)), { method: "DELETE" });
+        toast("Роль удалена.");
+        await loadAdminList();
+      } catch (error) {
+        toast(error.message || "Не удалось удалить роль.");
+        remove.disabled = false;
+      }
+    });
+    row.append(details, remove);
+    list.append(row);
+  }
+}
+
+async function loadAdminPanel() {
+  if (!adminConfigured) return;
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (!tg || !tg.initData) return;
+  try {
+    const data = await adminRequest("/api/admin/status");
+    adminActor = data.actor || null;
+    adminFlags = { siteLocked: Boolean(data.siteLocked), botEnabled: Boolean(data.botEnabled) };
+    if (adminActor && adminActor.role === "owner") {
+      adminNav.hidden = false;
+      $("#adminIdentity").textContent = "Вход подтверждён через Telegram. Уровень доступа: владелец.";
+      $("#ownerControls").hidden = false;
+      renderAdminFlags();
+      await loadAdminList();
+    }
+  } catch (error) {
+    if (error.message && !error.message.includes("Нет прав доступа")) {
+      $("#adminIdentity").textContent = "Панель не подключена или сессия Telegram недействительна.";
+    }
+  }
+}
+
+if (adminConfigured) {
+  fetch(ADMIN_API_ENDPOINT.replace(/\/+$/, "") + "/api/site-status", { cache: "no-store" })
+    .then(response => response.ok ? response.json() : null)
+    .then(data => {
+      if (!data) return;
+      adminFlags = { siteLocked: Boolean(data.siteLocked), botEnabled: Boolean(data.botEnabled) };
+      renderAdminFlags();
+    })
+    .catch(() => {});
+}
+loadAdminPanel();
+
+$("#adminLockToggle").addEventListener("click", async () => {
+  const next = !adminFlags.siteLocked;
+  const button = $("#adminLockToggle");
+  button.disabled = true;
+  try {
+    const data = await adminRequest("/api/admin/site-lock", { method: "POST", body: JSON.stringify({ locked: next }) });
+    adminFlags = { siteLocked: Boolean(data.siteLocked), botEnabled: Boolean(data.botEnabled) };
+    renderAdminFlags();
+    toast(next ? "Режим обслуживания включён." : "Режим обслуживания выключен.");
+  } catch (error) {
+    toast(error.message || "Не удалось изменить режим.");
+  } finally { button.disabled = false; }
+});
+
+$("#adminBotToggle").addEventListener("click", async () => {
+  const next = !adminFlags.botEnabled;
+  const button = $("#adminBotToggle");
+  button.disabled = true;
+  try {
+    const data = await adminRequest("/api/admin/bot", { method: "POST", body: JSON.stringify({ enabled: next }) });
+    adminFlags = { siteLocked: Boolean(data.siteLocked), botEnabled: Boolean(data.botEnabled) };
+    renderAdminFlags();
+    toast(next ? "Флаг запуска бота включён." : "Флаг остановки бота включён.");
+  } catch (error) {
+    toast(error.message || "Не удалось изменить состояние бота.");
+  } finally { button.disabled = false; }
+});
+
+$("#adminAddForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const telegramId = form.elements.telegramId.value.trim();
+  if (!/^\d{1,20}$/.test(telegramId)) { toast("Введи корректный числовой Telegram ID."); return; }
+  const submit = form.querySelector("button[type='submit']");
+  submit.disabled = true;
+  try {
+    await adminRequest("/api/admin/admins", {
+      method: "POST",
+      body: JSON.stringify({ telegramId, role: form.elements.role.value })
+    });
+    form.reset();
+    toast("Роль администратора сохранена.");
+    await loadAdminList();
+  } catch (error) {
+    toast(error.message || "Не удалось сохранить роль.");
+  } finally { submit.disabled = false; }
+});
