@@ -121,5 +121,44 @@ export default {async fetch(request,env){
     const target=url.searchParams.get("telegramId")||"";if(!/^\d{1,20}$/.test(target)||target===String(env.OWNER_TELEGRAM_ID))return json({error:"Укажи корректный Telegram ID администратора."},400);
     const r=await db.prepare("DELETE FROM admins WHERE telegram_id=?").bind(target).run();await audit(db,user.id,"admin_removed",target);return json({ok:true,removed:r.meta?.changes||0});
   }
+
+  if(url.pathname==="/api/admin/groups"&&request.method==="GET"){
+    const r=await db.prepare("SELECT chat_id,title,added_by,created_at FROM managed_groups ORDER BY created_at DESC LIMIT 200").all();
+    return json({groups:r.results||[]});
+  }
+  if(url.pathname==="/api/admin/groups"&&request.method==="POST"){
+    if(!["owner","co_owner"].includes(role))return json({error:"Добавлять группы может владелец или совладелец."},403);
+    let b;try{b=await bodyJson(request)}catch(e){return json({error:e.message==="TOO_LARGE"?"Слишком большой запрос.":"Некорректный JSON."},e.message==="TOO_LARGE"?413:400)}
+    const chatId=String(b.chatId||"").trim(),title=String(b.title||"").trim().slice(0,100);
+    if(!/^-?\d{1,20}$/.test(chatId)||!title)return json({error:"Нужны числовой ID группы и название."},400);
+    await db.prepare("INSERT INTO managed_groups(chat_id,title,added_by,created_at) VALUES(?,?,?,?) ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title,added_by=excluded.added_by,created_at=excluded.created_at").bind(chatId,title,user.id,new Date().toISOString()).run();
+    await audit(db,user.id,"group_registered",chatId);
+    return json({ok:true});
+  }
+  if(url.pathname==="/api/admin/groups"&&request.method==="DELETE"){
+    if(!["owner","co_owner"].includes(role))return json({error:"Удалять группы может владелец или совладелец."},403);
+    const chatId=url.searchParams.get("chatId")||"";
+    if(!/^-?\d{1,20}$/.test(chatId))return json({error:"Некорректный ID группы."},400);
+    const r=await db.prepare("DELETE FROM managed_groups WHERE chat_id=?").bind(chatId).run();
+    await audit(db,user.id,"group_unregistered",chatId);
+    return json({ok:true,removed:r.meta?.changes||0});
+  }
+  if(url.pathname==="/api/admin/group-action"&&request.method==="POST"){
+    let b;try{b=await bodyJson(request)}catch(e){return json({error:e.message==="TOO_LARGE"?"Слишком большой запрос.":"Некорректный JSON."},e.message==="TOO_LARGE"?413:400)}
+    const chatId=String(b.chatId||"").trim(),userId=String(b.userId||"").trim(),action=b.action;
+    if(!/^-?\d{1,20}$/.test(chatId)||!/^\d{1,20}$/.test(userId)||!["ban","unban"].includes(action))return json({error:"Проверь ID группы, ID пользователя и действие."},400);
+    const group=await db.prepare("SELECT chat_id FROM managed_groups WHERE chat_id=?").bind(chatId).first();
+    if(!group)return json({error:"Эта группа не зарегистрирована в GameHub."},404);
+    if(!env.BOT_TOKEN)return json({error:"BOT_TOKEN не настроен."},503);
+    const method=action==="ban"?"banChatMember":"unbanChatMember";
+    let upstream;
+    try{
+      upstream=await fetch("https://api.telegram.org/bot"+env.BOT_TOKEN+"/"+method,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,user_id:Number(userId),only_if_banned:action==="unban"})});
+    }catch{return json({error:"Не удалось связаться с Telegram."},502)}
+    const result=await upstream.json().catch(()=>({}));
+    if(!upstream.ok||result.ok!==true)return json({error:"Telegram отклонил действие. Проверь ID и права бота в группе."},502);
+    await audit(db,user.id,"group_"+action,chatId+":"+userId);
+    return json({ok:true,action,chatId,userId});
+  }
   return json({error:"Not found."},404);
 }};
