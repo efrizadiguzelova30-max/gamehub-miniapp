@@ -146,7 +146,8 @@ export default {async fetch(request,env){
   if(url.pathname==="/api/admin/group-action"&&request.method==="POST"){
     let b;try{b=await bodyJson(request)}catch(e){return json({error:e.message==="TOO_LARGE"?"Слишком большой запрос.":"Некорректный JSON."},e.message==="TOO_LARGE"?413:400)}
     const chatId=String(b.chatId||"").trim(),userId=String(b.userId||"").trim(),action=b.action;
-    if(!/^-?\d{1,20}$/.test(chatId)||!/^\d{1,20}$/.test(userId)||!["ban","unban","mute","unmute"].includes(action))return json({error:"Проверь ID группы, ID пользователя и действие."},400);
+    if(!/^-?\d{1,20}$/.test(chatId)||!/^\d{1,20}$/.test(userId)||!Number.isSafeInteger(Number(chatId))||!Number.isSafeInteger(Number(userId))||!["ban","unban","mute","unmute"].includes(action))return json({error:"Проверь ID группы, ID пользователя и действие."},400);
+    if(env.OWNER_TELEGRAM_ID&&userId===String(env.OWNER_TELEGRAM_ID))return json({error:"Действие над владельцем GameHub запрещено."},403);
     const group=await db.prepare("SELECT chat_id FROM managed_groups WHERE chat_id=?").bind(chatId).first();
     if(!group)return json({error:"Эта группа не зарегистрирована в GameHub."},404);
     if(!env.BOT_TOKEN)return json({error:"BOT_TOKEN не настроен."},503);
