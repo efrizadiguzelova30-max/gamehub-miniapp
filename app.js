@@ -84,6 +84,14 @@ const adminConfigured = /^https:\/\//.test(ADMIN_API_ENDPOINT) && !ADMIN_API_END
 const adminNav = $("#adminNav");
 const maintenanceBanner = $("#maintenanceBanner");
 let adminActor = null;
+if (!adminConfigured) {
+  const identity = $("#adminIdentity");
+  const unavailable = $("#adminUnavailable");
+  const unavailableText = $("#adminUnavailableText");
+  if (identity) identity.textContent = "Панель владельца GameHub";
+  if (unavailable) unavailable.hidden = false;
+  if (unavailableText) unavailableText.textContent = "Админ-сервер пока не подключён. Интерфейс доступен для просмотра, но действия управления заблокированы до настройки Cloudflare Worker, Telegram ID владельца и базы данных.";
+}
 let adminFlags = { siteLocked: false, botEnabled: true };
 
 async function adminRequest(path, options = {}) {
