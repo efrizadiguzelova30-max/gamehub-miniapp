@@ -1,6 +1,7 @@
 const ALLOWED_ORIGIN = "https://efrizadiguzelova30-max.github.io";
 const MODEL = "gemini-2.5-flash";
 const MAX_MESSAGE_CHARS = 500;
+const requestBuckets = new Map(); // Best-effort per-isolate throttle; add platform-level limits for production.
 
 function json(data, status = 200, origin = ALLOWED_ORIGIN) {
   return new Response(JSON.stringify(data), {
@@ -39,6 +40,19 @@ export default {
     if (!message || message.length > MAX_MESSAGE_CHARS) {
       return json({ error: "Сообщение должно содержать от 1 до 500 символов." }, 400);
     }
+
+    const now = Date.now();
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    let bucket = requestBuckets.get(ip);
+    if (!bucket || now - bucket.startedAt >= 60000) bucket = { startedAt: now, count: 0 };
+    bucket.count += 1;
+    requestBuckets.set(ip, bucket);
+    if (requestBuckets.size > 1000) {
+      for (const [key, value] of requestBuckets) {
+        if (now - value.startedAt >= 60000) requestBuckets.delete(key);
+      }
+    }
+    if (bucket.count > 8) return json({ error: "Слишком много сообщений. Подожди минуту и попробуй снова." }, 429);
 
     try {
       const upstream = await fetch(
