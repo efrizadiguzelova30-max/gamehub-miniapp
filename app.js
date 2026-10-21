@@ -280,6 +280,7 @@ async function loadAdminPanel() {
     adminFlags = { siteLocked: Boolean(data.siteLocked), botEnabled: Boolean(data.botEnabled) };
     if (adminActor && ["owner", "admin", "co_owner"].includes(adminActor.role)) {
       adminNav.hidden = false;
+      if (sideAdminNav) sideAdminNav.hidden = false;
       $("#adminIdentity").textContent = "Вход подтверждён через Telegram. Уровень доступа: " +
         (adminActor.role === "owner" ? "владелец" : adminActor.role === "co_owner" ? "совладелец" : "администратор") + ".";
       $("#ownerControls").hidden = adminActor.role !== "owner";
