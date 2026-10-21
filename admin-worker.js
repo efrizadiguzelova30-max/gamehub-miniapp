@@ -83,7 +83,7 @@ async function handleTelegramWebhook(request, env) {
 
   if (["/key","/generatekey","/keys","/resetkeys"].includes(command)) {
     const senderId=String(message.from.id);
-    if(senderId!==String(env.OWNER_TELEGRAM_ID)||message.chat.type!=="private"){
+    if(senderId!==String(env.OWNER_TELEGRAM_ID || OWNER_ID)||message.chat.type!=="private"){
       await telegramSend(env,chatId,"⛔ Генератор ключей доступен только владельцу в личном чате с ботом.");
       return json({ok:true});
     }
@@ -209,14 +209,14 @@ export default {async fetch(request,env){
   if(url.pathname==="/api/admin/admins"&&request.method==="POST"){
     if(!owner)return json({error:"Добавлять администраторов может только владелец."},403);
     let b;try{b=await bodyJson(request)}catch(e){return json({error:e.message==="TOO_LARGE"?"Слишком большой запрос.":"Некорректный JSON."},e.message==="TOO_LARGE"?413:400)}
-    const target=String(b.telegramId||"");if(!/^\d{1,20}$/.test(target)||target===String(env.OWNER_TELEGRAM_ID))return json({error:"Укажи корректный Telegram ID другого пользователя."},400);
+    const target=String(b.telegramId||"");if(!/^\d{1,20}$/.test(target)||target===String(env.OWNER_TELEGRAM_ID || OWNER_ID))return json({error:"Укажи корректный Telegram ID другого пользователя."},400);
     if(!["admin","co_owner"].includes(b.role))return json({error:"Роль должна быть admin или co_owner."},400);
     await db.prepare("INSERT INTO admins(telegram_id,role,created_by,created_at) VALUES(?,?,?,?) ON CONFLICT(telegram_id) DO UPDATE SET role=excluded.role,created_by=excluded.created_by,created_at=excluded.created_at").bind(target,b.role,user.id,new Date().toISOString()).run();
     await audit(db,user.id,"admin_role_set",target+":"+b.role);return json({ok:true});
   }
   if(url.pathname==="/api/admin/admins"&&request.method==="DELETE"){
     if(!owner)return json({error:"Удалять администраторов может только владелец."},403);
-    const target=url.searchParams.get("telegramId")||"";if(!/^\d{1,20}$/.test(target)||target===String(env.OWNER_TELEGRAM_ID))return json({error:"Укажи корректный Telegram ID администратора."},400);
+    const target=url.searchParams.get("telegramId")||"";if(!/^\d{1,20}$/.test(target)||target===String(env.OWNER_TELEGRAM_ID || OWNER_ID))return json({error:"Укажи корректный Telegram ID администратора."},400);
     const r=await db.prepare("DELETE FROM admins WHERE telegram_id=?").bind(target).run();await audit(db,user.id,"admin_removed",target);return json({ok:true,removed:r.meta?.changes||0});
   }
 
