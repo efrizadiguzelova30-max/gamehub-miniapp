@@ -98,8 +98,8 @@ const ACCESS_API_ENDPOINT = ADMIN_API_ENDPOINT;
 const accessApiConfigured = /^https:\/\//.test(ACCESS_API_ENDPOINT) && !ACCESS_API_ENDPOINT.includes("PASTE_");
 const adminConfigured = /^https:\/\//.test(ADMIN_API_ENDPOINT) && !ADMIN_API_ENDPOINT.includes("PASTE_");
 const adminNav = $("#adminNav");
-if (adminNav) if(adminNav)adminNav.hidden = false; // The status page is visible; privileged controls remain server-gated.
-const sideAdminNav=$("#sideAdminNav");if(sideAdminNav)sideAdminNav.hidden=false;
+if (adminNav) adminNav.hidden = !isTelegramOwner(); // Non-owner admins are revealed only after server-side role verification.
+const sideAdminNav=$("#sideAdminNav");if(sideAdminNav)sideAdminNav.hidden=!isTelegramOwner();
 const maintenanceBanner = $("#maintenanceBanner");
 let adminActor = null;
 if (!adminConfigured) {
@@ -534,8 +534,13 @@ $("#osintUserForm").addEventListener("submit", e => {
   const gate=$("#accessGate"),app=$("#luniumApp"),form=$("#accessKeyForm"),input=$("#accessKeyInput"),result=$("#accessKeyResult"),message=$("#accessGateMessage");
   if(!gate||!app||!form)return;
   if(!accessApiConfigured){
-    gate.hidden=true;app.hidden=false;
-    if(message)message.textContent="Сервис ключей ещё не подключён. После настройки сервера вход будет по ключу.";
+    if(isTelegramOwner()){
+      gate.hidden=true;app.hidden=false;
+      if(message)message.textContent="Владелец распознан. Сервис ключей ожидает настройки сервера.";
+    }else{
+      gate.hidden=false;app.hidden=true;
+      if(message)message.textContent="Сервис ключей временно не подключён, поэтому вход закрыт. Если ты владелец, открой мини-приложение через кнопку бота в Telegram; обычная ссылка не передаёт Telegram ID.";
+    }
     return;
   }
   let granted=false;
