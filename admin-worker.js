@@ -136,7 +136,8 @@ export default {async fetch(request,env){
     const result=await env.DB.prepare("UPDATE access_keys SET revoked_at=? WHERE revoked_at IS NULL").bind(now).run();
     return json({ok:true,revoked:result.meta?.changes||0});
   }
-\n  if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
+
+  if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
   if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
   if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
 
