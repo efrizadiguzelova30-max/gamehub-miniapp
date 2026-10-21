@@ -30,6 +30,9 @@ async function bodyJson(request){
 async function getSetting(db,key,fallback){const r=await db.prepare("SELECT value FROM site_settings WHERE key = ?").bind(key).first();return r?r.value:fallback}
 async function setSetting(db,key,value){await db.prepare("INSERT INTO site_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(key,value,new Date().toISOString()).run()}
 async function audit(db,actor,action,target=""){await db.prepare("INSERT INTO audit_log(actor_telegram_id,action,target,created_at) VALUES(?,?,?,?)").bind(actor,action,String(target).slice(0,120),new Date().toISOString()).run()}
+async function sha256Hex(value){const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return hex(new Uint8Array(digest))}
+function makeAccessKey(){const bytes=crypto.getRandomValues(new Uint8Array(24));return "GH-"+btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"")}
+async function checkAccessAttempt(db,ip){const bucket=Math.floor(Date.now()/60000),ipHash=await sha256Hex(ip||"unknown");await db.prepare("INSERT INTO access_key_attempts(ip_hash,window_start,attempts) VALUES(?,?,1) ON CONFLICT(ip_hash,window_start) DO UPDATE SET attempts=attempts+1").bind(ipHash,bucket).run();const row=await db.prepare("SELECT attempts FROM access_key_attempts WHERE ip_hash=? AND window_start=?").bind(ipHash,bucket).first();return Number(row?.attempts||0)<=10}
 async function getStatus(db){return{siteLocked:(await getSetting(db,"site_locked","false"))==="true",botEnabled:(await getSetting(db,"bot_enabled","true"))==="true"}}
 async function auth(request,env){
   if(!env.DB||!env.BOT_TOKEN||!env.OWNER_TELEGRAM_ID)return{error:json({error:"Admin API не настроен. Нужны D1 DB, BOT_TOKEN и OWNER_TELEGRAM_ID."},503)};
@@ -87,11 +90,73 @@ export default {async fetch(request,env){
   if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
   if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
   if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
+  if(url.pathname==="/api/access/validate"&&request.method==="POST"){
+    if(!env.DB||!env.BOT_TOKEN||!env.OWNER_TELEGRAM_ID)return json({error:"Сервер доступа ещё не настроен."},503);
+    const initUser=await verifyInitData(request.headers.get("X-Telegram-Init-Data")||"",env.BOT_TOKEN);
+    if(initUser&&initUser.id===String(env.OWNER_TELEGRAM_ID))return json({ok:true,owner:true,role:"owner"});
+    let b;try{b=await bodyJson(request)}catch(e){return json({error:"Некорректный запрос."},400)}
+    const key=String(b.key||"").trim();
+    if(!key||key.length>160)return json({error:"Введи действующий ключ доступа."},400);
+    const ip=request.headers.get("CF-Connecting-IP")||"unknown";
+    try{if(!(await checkAccessAttempt(env.DB,ip)))return json({error:"Слишком много попыток. Подожди минуту."},429)}catch{return json({error:"Не удалось проверить лимит попыток."},503)}
+    const hash=await sha256Hex(key);
+    const row=await env.DB.prepare("SELECT id,label,expires_at FROM access_keys WHERE key_hash=? AND revoked_at IS NULL").bind(hash).first();
+    if(!row)return json({error:"Ключ неверный или отозван."},401);
+    if(row.expires_at&&Date.parse(row.expires_at)<=Date.now())return json({error:"Срок действия ключа истёк."},401);
+    return json({ok:true,owner:false,label:row.label||""});
+  }
+  if(url.pathname==="/api/bot/access-keys"&&request.method==="POST"){
+    const secret=String(request.headers.get("X-Bot-Access-Secret")||"");
+    if(!env.ACCESS_KEY_BOT_SECRET||!equal(secret,String(env.ACCESS_KEY_BOT_SECRET)))return json({error:"Forbidden."},403);
+    if(!env.DB||!env.OWNER_TELEGRAM_ID)return json({error:"Access key service not configured."},503);
+    let b;try{b=await bodyJson(request)}catch{return json({error:"Invalid JSON."},400)}
+    if(String(b.ownerTelegramId||"")!==String(env.OWNER_TELEGRAM_ID))return json({error:"Owner verification failed."},403);
+    const action=String(b.action||"create");
+    if(action==="revoke"){
+      const id=String(b.id||"");
+      if(!/^[0-9a-f-]{20,40}$/i.test(id))return json({error:"Invalid key ID."},400);
+      const r=await env.DB.prepare("UPDATE access_keys SET revoked_at=? WHERE id=? AND revoked_at IS NULL").bind(new Date().toISOString(),id).run();
+      return json({ok:true,revoked:Number(r.meta?.changes||0)});
+    }
+    if(action==="list"){
+      const r=await env.DB.prepare("SELECT id,key_prefix,label,created_at,expires_at,revoked_at FROM access_keys ORDER BY created_at DESC LIMIT 100").all();
+      return json({keys:r.results||[]});
+    }
+    const label=String(b.label||"").trim().slice(0,80),days=Number(b.expiresDays??7);
+    if(!Number.isInteger(days)||days<0||days>365)return json({error:"expiresDays must be 0..365."},400);
+    const key=makeAccessKey(),id=crypto.randomUUID(),createdAt=new Date().toISOString(),expiresAt=days?new Date(Date.now()+days*86400000).toISOString():null;
+    await env.DB.prepare("INSERT INTO access_keys(id,key_hash,key_prefix,label,created_by,created_at,expires_at,revoked_at) VALUES(?,?,?,?,?,?,?,NULL)").bind(id,await sha256Hex(key),key.slice(0,7)+"…",label,String(env.OWNER_TELEGRAM_ID),createdAt,expiresAt).run();
+    return json({ok:true,id,key,label,createdAt,expiresAt});
+  }
   if(!url.pathname.startsWith("/api/admin/"))return json({error:"Not found."},404);
   if(!["GET","POST","DELETE"].includes(request.method))return json({error:"Method not allowed."},405);
   const a=await auth(request,env);if(a.error)return a.error;
   const {user,role}=a,owner=role==="owner",db=env.DB;
   if(url.pathname==="/api/admin/status"&&request.method==="GET")return json({...await getStatus(db),actor:{id:user.id,role}});
+  if(url.pathname==="/api/admin/access-keys"&&request.method==="GET"){
+    if(!owner)return json({error:"Ключи доступа может просматривать только владелец."},403);
+    const r=await db.prepare("SELECT id,key_prefix,label,created_at,expires_at,revoked_at FROM access_keys ORDER BY created_at DESC LIMIT 100").all();
+    return json({keys:r.results||[]});
+  }
+  if(url.pathname==="/api/admin/access-keys"&&request.method==="POST"){
+    if(!owner)return json({error:"Ключи доступа может выпускать только владелец."},403);
+    let b;try{b=await bodyJson(request)}catch(e){return json({error:"Некорректный JSON."},400)}
+    const label=String(b.label||"").trim().slice(0,80),days=Number(b.expiresDays??7);
+    if(!Number.isInteger(days)||days<0||days>365)return json({error:"Выбери срок от 1 до 365 дней или без срока."},400);
+    const key=makeAccessKey(),id=crypto.randomUUID(),createdAt=new Date().toISOString(),expiresAt=days?new Date(Date.now()+days*86400000).toISOString():null;
+    await db.prepare("INSERT INTO access_keys(id,key_hash,key_prefix,label,created_by,created_at,expires_at,revoked_at) VALUES(?,?,?,?,?,?,?,NULL)").bind(id,await sha256Hex(key),key.slice(0,7)+"…",label,user.id,createdAt,expiresAt).run();
+    await audit(db,user.id,"access_key_created",id+":"+label);
+    return json({ok:true,id,key,label,createdAt,expiresAt});
+  }
+  if(url.pathname==="/api/admin/access-keys"&&request.method==="DELETE"){
+    if(!owner)return json({error:"Ключи доступа может отзывать только владелец."},403);
+    const id=url.searchParams.get("id")||"";
+    if(!/^[0-9a-f-]{20,40}$/i.test(id))return json({error:"Некорректный ID ключа."},400);
+    const r=await db.prepare("UPDATE access_keys SET revoked_at=? WHERE id=? AND revoked_at IS NULL").bind(new Date().toISOString(),id).run();
+    await audit(db,user.id,"access_key_revoked",id);
+    return json({ok:true,revoked:Number(r.meta?.changes||0)});
+  }
+
   if(url.pathname==="/api/admin/site-lock"&&request.method==="POST"){
     if(!owner)return json({error:"Только владелец может блокировать сайт."},403);
     let b;try{b=await bodyJson(request)}catch(e){return json({error:e.message==="TOO_LARGE"?"Слишком большой запрос.":"Некорректный JSON."},e.message==="TOO_LARGE"?413:400)}
