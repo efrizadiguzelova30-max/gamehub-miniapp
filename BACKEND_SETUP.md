@@ -10,7 +10,7 @@ This is a backend starting point, not a deployed admin panel. GitHub Pages only 
 
 ## Required before deployment
 1. Create a Cloudflare D1 database and Worker. Copy wrangler.toml.example to wrangler.toml, replace the database ID, and apply the SQL migration.
-2. Set secrets using Wrangler: BOT_TOKEN, OWNER_TELEGRAM_ID (the numeric Telegram ID of the actual owner), and TELEGRAM_WEBHOOK_SECRET (a random secret used only for Telegram webhook verification). Never put these secrets in public HTML/JS or Git.
+2. Set secrets using Wrangler: BOT_TOKEN, OWNER_TELEGRAM_ID (the numeric Telegram ID of the actual owner; `mogila_deda100` is a username, not this numeric ID), and TELEGRAM_WEBHOOK_SECRET (a random secret used only for Telegram webhook verification). Never put these secrets in public HTML/JS or Git.
 3. Deploy the Worker. The current frontend is not yet connected to this API.
 4. The Telegram bot service must independently check bot_enabled before handling commands. This flag records desired state; it does not stop a separate process by itself.
 6. Integrate a maintenance overlay in the frontend and enforce the locked state in every protected backend endpoint. GitHub Pages files remain public; this does not hide the static URL.
