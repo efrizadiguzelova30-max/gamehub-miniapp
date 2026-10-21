@@ -75,7 +75,7 @@ async function handleTelegramWebhook(request, env) {
   const command = message.text.trim().split(/\s+/)[0].split("@")[0].toLowerCase();
   const commands = {
     "/start": "Привет! Я бот GameHub. Используй /help, чтобы увидеть доступные команды.",
-    "/help": "Команды GameHub:\n/start — запуск\n/help — помощь\n/status — состояние сервиса\n/groupid — ID текущего чата (в группах).",
+    "/help": "Команды GameHub:\n/start — запуск\n/help — помощь\n/status — состояние сервиса\n/groupid — ID текущего чата (в группах)\n/key [часы] — создать ключ (владелец, личный чат)\n/keys — список ключей (владелец)\n/resetkeys — отозвать все ключи (владелец).",
     "/status": "Состояние GameHub: бот включён. Настройки сайта и права управления доступны владельцу через защищённую мини-панель."
   };
 
