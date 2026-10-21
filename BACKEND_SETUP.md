@@ -4,14 +4,14 @@ This is a backend starting point, not a deployed admin panel. GitHub Pages only 
 
 ## Included
 - admin-worker.js: server-side Telegram Mini App initData HMAC validation (maximum age one hour), owner-only site-lock and bot-state controls, owner-only admin/co-owner management, parameterized D1 queries, audit log, origin checks, body size limits, and no-store responses.
-- migrations/0001_admin.sql and migrations/0002_groups.sql: database tables for roles, settings, audit logs, and managed Telegram groups.
+- migrations/0001_admin.sql, migrations/0002_groups.sql and migrations/0004_access_keys.sql: database tables for roles, settings, audit logs, and managed Telegram groups.
 - wrangler.toml.example: Cloudflare Worker and D1 binding template.
 - Telegram webhook route: basic /start, /help, /status and /groupid commands; it checks a dedicated webhook secret and honors the bot_enabled setting.
 
 ## Required before deployment
 1. Create a Cloudflare D1 database and Worker. Copy wrangler.toml.example to wrangler.toml, replace the database ID, and apply the SQL migration.
 2. Set secrets using Wrangler: BOT_TOKEN, OWNER_TELEGRAM_ID (the numeric Telegram ID of the actual owner; `mogila_deda100` is a username, not this numeric ID), and TELEGRAM_WEBHOOK_SECRET (a random secret used only for Telegram webhook verification). Never put these secrets in public HTML/JS or Git.
-3. Deploy the Worker. The current frontend is not yet connected to this API.
+3. Apply all migrations including `0004_access_keys.sql`, then deploy the Worker. Set the `ACCESS_KEY_BOT_SECRET` Worker secret if you want to manage keys from the Python Telegram bot. The front end calls `/api/access/validate` and `/api/admin/access-keys` on this Worker.
 4. The Telegram bot service must independently check bot_enabled before handling commands. This flag records desired state; it does not stop a separate process by itself.
 6. Integrate a maintenance overlay in the frontend and enforce the locked state in every protected backend endpoint. GitHub Pages files remain public; this does not hide the static URL.
 6. Register the Telegram webhook URL ending in /telegram/webhook and set the same secret with Telegram's secret_token option. Configure edge rate limits before public launch.
