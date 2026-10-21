@@ -44,9 +44,9 @@ async function handleChat(request, env) {
 
   let body;
   try {
-    const length = Number(request.headers.get("Content-Length") || 0);
-    if (length > 4000) return json({ error: "Сообщение слишком большое." }, 413);
-    body = await request.json();
+    const rawBody = await request.text();
+    if (rawBody.length > 4000) return json({ error: "Сообщение слишком большое." }, 413);
+    body = JSON.parse(rawBody);
   } catch {
     return json({ error: "Некорректный JSON." }, 400);
   }
