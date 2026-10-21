@@ -17,7 +17,7 @@ This repository contains the frontend and a Cloudflare Worker implementation. **
 2. Apply migrations in order, including `migrations/0003_access_keys.sql`, using `npx wrangler d1 migrations apply gamehub-admin --remote`.
 3. Set Worker secrets:
    - `BOT_TOKEN`: token of the Telegram bot that owns the site.
-   - `OWNER_TELEGRAM_ID`: numeric Telegram user ID of the owner.
+   - The owner ID `7271410328` is built into `admin-worker.js`; `OWNER_TELEGRAM_ID` is optional if you want to override it.
    - `TELEGRAM_WEBHOOK_SECRET`: random secret only if using Telegram webhook mode.
    - `BOT_COMMAND_SECRET`: a separate random secret used by the existing polling bot to call the key API.
 4. Deploy the Worker with `npx wrangler deploy` and copy its real `https://…workers.dev` URL.
