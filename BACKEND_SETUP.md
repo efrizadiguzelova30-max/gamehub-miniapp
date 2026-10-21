@@ -1,33 +1,60 @@
-# GameHub backend foundation (not deployed)
+# LUNIUM access-key backend
 
-This is a backend starting point, not a deployed admin panel. GitHub Pages only serves public static files; it cannot securely enforce roles or make the static site private.
+This repository contains the frontend and a Cloudflare Worker implementation. **Access keys are not live until the Worker is deployed, D1 migrations are applied, and the Worker URL is set in `app.js`.** GitHub Pages alone cannot securely keep HTML/JS private.
 
-## Included
-- admin-worker.js: server-side Telegram Mini App initData HMAC validation (maximum age one hour), owner-only site-lock and bot-state controls, owner-only admin/co-owner management, parameterized D1 queries, audit log, origin checks, body size limits, and no-store responses.
-- migrations/0001_admin.sql and migrations/0002_groups.sql: database tables for roles, settings, audit logs, and managed Telegram groups.
-- wrangler.toml.example: Cloudflare Worker and D1 binding template.
-- Telegram webhook route: basic /start, /help, /status and /groupid commands; it checks a dedicated webhook secret and honors the bot_enabled setting.
+## What is implemented
 
-## Required before deployment
-1. Create a Cloudflare D1 database and Worker. Copy wrangler.toml.example to wrangler.toml, replace the database ID, and apply the SQL migration.
-2. Set secrets using Wrangler: BOT_TOKEN, OWNER_TELEGRAM_ID (the numeric Telegram ID of the actual owner), and TELEGRAM_WEBHOOK_SECRET (a random secret used only for Telegram webhook verification). Never put these secrets in public HTML/JS or Git.
-3. Deploy the Worker. The current frontend is not yet connected to this API.
-4. The Telegram bot service must independently check bot_enabled before handling commands. This flag records desired state; it does not stop a separate process by itself.
-6. Integrate a maintenance overlay in the frontend and enforce the locked state in every protected backend endpoint. GitHub Pages files remain public; this does not hide the static URL.
-6. Register the Telegram webhook URL ending in /telegram/webhook and set the same secret with Telegram's secret_token option. Configure edge rate limits before public launch.
+- `admin-worker.js`: Telegram Mini App HMAC verification, owner-only administration, access-key create/list/reset endpoints, public key validation, a webhook command path, and a shared-secret API for an existing polling bot.
+- `migrations/0003_access_keys.sql`: stores only SHA-256 hashes of keys, expiry, revocation, and use metadata.
+- The browser gate accepts keys only through `POST /api/access/validate` once `ADMIN_API_ENDPOINT` is configured in `app.js`.
+- Owner panel endpoints: `GET/POST /api/admin/keys`, `POST /api/admin/keys/reset`.
+- Existing polling bot integration endpoints: `POST /api/bot/generate-key` and `POST /api/bot/reset-keys`, protected by `X-Bot-Command-Secret`.
+- Worker webhook commands (if the bot is switched to webhook mode): `/key [hours]`, `/keys`, `/resetkeys`, owner-only and private-chat-only.
 
-## Endpoints
-- GET /api/site-status — public site-lock and bot flags.
-- GET /api/admin/status — actor and flags; requires Telegram WebApp initData header.
-- POST /api/admin/site-lock with JSON locked=true/false — owner only.
-- POST /api/admin/bot with JSON enabled=true/false — owner only.
-- GET /api/admin/admins — owner only.
-- POST /api/admin/admins with JSON telegramId and role=admin or co_owner — owner only.
-- DELETE /api/admin/admins?telegramId=123456 — owner only.
-- GET /api/admin/groups — any authenticated GameHub admin/co-owner/owner.
-- POST /api/admin/groups with chatId and title — owner or co-owner.
-- DELETE /api/admin/groups?chatId=-1001234567890 — owner or co-owner.
-- POST /api/admin/group-action with chatId, userId and action=ban|unban|mute|unmute — authenticated admin; the bot must have suitable Telegram group permissions.
-- POST /telegram/webhook — Telegram webhook secured by TELEGRAM_WEBHOOK_SECRET; currently implements basic bot commands only.
+## Required setup before keys can work
 
-Send Telegram WebApp initData in X-Telegram-Init-Data, never initDataUnsafe. Do not weaken authentication or hardcode a test token.
+1. Create a Cloudflare D1 database and a Worker named `gamehub-admin-api`. Use `wrangler.toml.example` as a template, replacing the D1 database ID.
+2. Apply migrations in order, including `migrations/0003_access_keys.sql`, using `npx wrangler d1 migrations apply gamehub-admin --remote`.
+3. Set Worker secrets:
+   - `BOT_TOKEN`: token of the Telegram bot that owns the site.
+   - `OWNER_TELEGRAM_ID`: numeric Telegram user ID of the owner.
+   - `TELEGRAM_WEBHOOK_SECRET`: random secret only if using Telegram webhook mode.
+   - `BOT_COMMAND_SECRET`: a separate random secret used by the existing polling bot to call the key API.
+4. Deploy the Worker with `npx wrangler deploy` and copy its real `https://…workers.dev` URL.
+5. In `app.js`, replace `PASTE_CLOUDFLARE_ADMIN_WORKER_URL_HERE` with that exact Worker URL. Commit and publish the frontend after that.
+6. For an existing polling bot, add commands that call the Worker endpoints below. Do **not** register a Telegram webhook while another process is using `getUpdates`; Telegram polling and webhook modes conflict.
+7. If using webhook mode instead, stop the polling process first, then register the Worker URL ending in `/telegram/webhook` and use the same `TELEGRAM_WEBHOOK_SECRET` in Telegram's `secret_token` setting.
+
+## Existing polling bot API
+
+Request:
+- `POST /api/bot/generate-key`
+- Header: `X-Bot-Command-Secret: <BOT_COMMAND_SECRET>`
+- JSON body: `{"hours":24}` (1–720 hours; optional, defaults to 24)
+
+The response contains the plaintext key exactly once, plus creation and expiry timestamps. The bot must check that the sender's Telegram ID equals `OWNER_TELEGRAM_ID` **before** calling this endpoint, and should only deliver the key in a private chat with the owner.
+
+To revoke every active key:
+- `POST /api/bot/reset-keys`
+- Same secret header.
+- Bot should restrict this command to the owner in private chat.
+
+Never expose `BOT_COMMAND_SECRET`, `BOT_TOKEN`, or the Worker URL's secret values in public HTML, JavaScript, chat logs, or a public repository.
+
+## Admin API
+
+- `GET /api/site-status` — public status flags.
+- `GET /api/admin/status` — authenticated actor and flags; requires Telegram WebApp `initData` in `X-Telegram-Init-Data`.
+- `POST /api/admin/site-lock` with `{"locked":true|false}` — owner only.
+- `POST /api/admin/bot` with `{"enabled":true|false}` — owner only.
+- `GET /api/admin/keys` — owner-only key inventory (key values are not stored or returned).
+- `POST /api/admin/keys` with `{"hours":24}` — owner-only generation; plaintext is returned once.
+- `POST /api/admin/keys/reset` with `{}` — owner-only revoke-all.
+- `POST /api/access/validate` with `{"key":"LUN-…"}` — public validation, rate limits should be configured at Cloudflare edge before a public launch.
+- `GET/POST/DELETE /api/admin/admins` — owner-only role management.
+- `GET/POST/DELETE /api/admin/groups` and `POST /api/admin/group-action` — group moderation routes.
+- `POST /telegram/webhook` — webhook mode only.
+
+## Important limitation
+
+GitHub Pages serves static source files publicly. The key gate controls normal site use but cannot make the underlying HTML/JavaScript secret. Any truly private data or actions must stay behind authenticated Worker endpoints. A key-gated UI must never be treated as a substitute for backend authorization.
