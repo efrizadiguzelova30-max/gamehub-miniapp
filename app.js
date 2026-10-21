@@ -435,52 +435,54 @@ $("#osintUserForm").addEventListener("submit", e => {
 // Optional relaxing background ambience (generated locally; no external track or tracking request).
 // Audio starts only after the visitor presses the button because mobile browsers block autoplay.
 (function setupRelaxMusic(){
-  const button = document.querySelector("#relaxMusicButton");
-  if (!button) return;
-  let context = null, master = null, oscillators = [], playing = false, lfo = null, lfoGain = null;
-  function stopMusic(){
-    playing = false;
-    try { oscillators.forEach(o => { try { o.stop(); } catch (_) {} }); if (lfo) lfo.stop(); } catch (_) {}
-    oscillators = []; lfo = null; lfoGain = null;
-    if (master && context) { try { master.gain.setTargetAtTime(0, context.currentTime, 0.18); } catch (_) {} }
-    button.textContent = "♫ Включить музыку";
-    button.setAttribute("aria-pressed","false");
+  const button=document.querySelector("#relaxMusicButton");
+  if(!button)return;
+  let context=null,master=null,notes=[],timer=null,playing=false,step=0;
+  const melody=[392,440,523.25,440,392,329.63,349.23,392,293.66,349.23,392,440,392,349.23,329.63,293.66];
+  function stop(){
+    playing=false;
+    if(timer!==null){clearInterval(timer);timer=null}
+    if(context&&master){try{master.gain.cancelScheduledValues(context.currentTime);master.gain.setTargetAtTime(0.0001,context.currentTime,0.12)}catch(_){}}
+    notes.forEach(n=>{try{n.osc.stop(context.currentTime+0.25)}catch(_){}});notes=[];
+    button.textContent="♫ Включить музыку";button.setAttribute("aria-pressed","false");
   }
-  async function startMusic(){
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) { if (typeof toast === "function") toast("Этот браузер не поддерживает фоновую музыку."); return; }
-    context = context || new AudioContextClass();
+  async function start(){
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC){if(typeof toast==="function")toast("Браузер не поддерживает воспроизведение звука.");return}
+    context=context&&!['closed'].includes(context.state)?context:new AC();
     await context.resume();
-    master = context.createGain();
-    master.gain.value = 0.0001;
-    master.connect(context.destination);
-    // Gentle, slow chord with rounded sine waves and no sharp percussion.
-    [196.00, 246.94, 293.66, 369.99].forEach((hz, i) => {
-      const osc = context.createOscillator(), gain = context.createGain();
-      osc.type = "sine";
-      osc.frequency.value = hz;
-      gain.gain.value = [0.10,0.055,0.045,0.025][i];
-      osc.connect(gain); gain.connect(master); osc.start();
-      oscillators.push(osc);
-    });
-    lfo = context.createOscillator(); lfo.type = "sine"; lfo.frequency.value = 0.07;
-    lfoGain = context.createGain(); lfoGain.gain.value = 0.018;
-    lfo.connect(lfoGain); lfoGain.connect(master.gain); lfo.start();
-    master.gain.setTargetAtTime(0.13, context.currentTime, 1.6);
-    playing = true;
-    button.textContent = "♫ Выключить музыку";
-    button.setAttribute("aria-pressed","true");
+    master=context.createGain();master.gain.value=0.0001;master.connect(context.destination);
+    const pad=context.createOscillator(),padGain=context.createGain();
+    pad.type="sine";pad.frequency.value=196;padGain.gain.value=0.055;pad.connect(padGain);padGain.connect(master);pad.start();
+    const harmony=context.createOscillator(),harmonyGain=context.createGain();
+    harmony.type="sine";harmony.frequency.value=246.94;harmonyGain.gain.value=0.028;harmony.connect(harmonyGain);harmonyGain.connect(master);harmony.start();
+    notes.push({osc:pad,gain:padGain},{osc:harmony,gain:harmonyGain});
+    const lead=context.createOscillator(),leadGain=context.createGain();
+    lead.type="triangle";lead.frequency.value=melody[0];leadGain.gain.value=0.0001;lead.connect(leadGain);leadGain.connect(master);lead.start();
+    notes.push({osc:lead,gain:leadGain});
+    master.gain.setTargetAtTime(0.42,context.currentTime,1.1);
+    leadGain.gain.setTargetAtTime(0.045,context.currentTime,1.2);
+    step=0;
+    timer=setInterval(()=>{
+      if(!playing||!context||context.state!=="running")return;
+      step=(step+1)%melody.length;
+      lead.frequency.setTargetAtTime(melody[step],context.currentTime,0.16);
+      if(step%4===0)pad.frequency.setTargetAtTime([196,174.61,146.83,164.81][Math.floor(step/4)],context.currentTime,0.8);
+      if(step%4===0)harmony.frequency.setTargetAtTime([246.94,220,196,207.65][Math.floor(step/4)],context.currentTime,0.8);
+    },720);
+    playing=true;button.textContent="♫ Выключить музыку";button.setAttribute("aria-pressed","true");
   }
-  button.addEventListener("click", async () => {
-    if (playing) { stopMusic(); return; }
-    button.disabled = true;
-    try { await startMusic(); }
-    catch (_) { if (typeof toast === "function") toast("Не удалось включить звук. Проверь настройки браузера."); }
-    finally { button.disabled = false; }
+  button.addEventListener("click",async()=>{
+    if(playing){stop();return}
+    button.disabled=true;
+    try{await start();if(!playing&&typeof toast==="function")toast("Не удалось включить звук. Проверь разрешение звука браузера.")}
+    catch(_){if(typeof toast==="function")toast("Звук не запустился. Нажми ещё раз и проверь громкость устройства.")}
+    finally{button.disabled=false}
   });
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden && playing && context) context.suspend().catch(()=>{});
-    else if (!document.hidden && playing && context) context.resume().catch(()=>{});
+  document.addEventListener("visibilitychange",()=>{
+    if(!context)return;
+    if(document.hidden&&playing)context.suspend().catch(()=>{});
+    else if(!document.hidden&&playing)context.resume().catch(()=>{});
   });
 })();
 
