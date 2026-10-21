@@ -169,6 +169,52 @@ async function loadAdminList() {
   }
 }
 
+async function loadAccessKeyList() {
+  const list = $("#accessKeyList");
+  if (!list) return;
+  list.replaceChildren();
+  const data = await adminRequest("/api/admin/access-keys");
+  const keys = Array.isArray(data.keys) ? data.keys : [];
+  if (!keys.length) {
+    const empty = document.createElement("p");
+    empty.className = "subtle-note";
+    empty.textContent = "Ключи ещё не создавались.";
+    list.append(empty);
+    return;
+  }
+  for (const entry of keys) {
+    const row = document.createElement("div");
+    row.className = "access-key-row";
+    const details = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = (entry.label || "Ключ доступа") + " · " + String(entry.key_prefix || "GH-…");
+    const meta = document.createElement("small");
+    const expiry = entry.expires_at ? new Date(entry.expires_at).toLocaleString("ru-RU") : "без срока";
+    meta.textContent = (entry.revoked_at ? "Отозван" : "Активен") + " · создан " + new Date(entry.created_at).toLocaleDateString("ru-RU") + " · срок: " + expiry;
+    details.append(title, meta);
+    row.append(details);
+    if (!entry.revoked_at) {
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "btn secondary";
+      revoke.textContent = "Сбросить";
+      revoke.addEventListener("click", async () => {
+        if (!window.confirm("Отозвать этот ключ? Пользователь больше не сможет войти с ним.")) return;
+        revoke.disabled = true;
+        try {
+          await adminRequest("/api/admin/access-keys?id=" + encodeURIComponent(String(entry.id)), { method: "DELETE" });
+          toast("Ключ доступа отозван.");
+          await loadAccessKeyList();
+        } catch (error) {
+          toast(error.message || "Не удалось отозвать ключ.");
+          revoke.disabled = false;
+        }
+      });
+      row.append(revoke);
+    }
+    list.append(row);
+  }
+}
 async function loadGroupList() {
   const list = $("#managedGroupList");
   const select = $("#moderationGroup");
@@ -241,6 +287,7 @@ async function loadAdminPanel() {
       if (adminActor.role === "owner") {
         renderAdminFlags();
         await loadAdminList();
+        await loadAccessKeyList();
       }
       await loadGroupList();
     }
@@ -425,3 +472,81 @@ $("#osintUserForm").addEventListener("submit", e => {
     box.append(a);
   }
 });
+
+
+$("#accessKeyCreateForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector("button[type='submit']");
+  submit.disabled = true;
+  try {
+    const data = await adminRequest("/api/admin/access-keys", {
+      method: "POST",
+      body: JSON.stringify({ label: form.elements.label.value.trim(), expiresDays: Number(form.elements.expiresDays.value) })
+    });
+    $("#newAccessKeyNotice").hidden = false;
+    $("#newAccessKeyValue").textContent = String(data.key || "");
+    form.elements.label.value = "";
+    toast("Новый ключ создан. Скопируй его сейчас.");
+    await loadAccessKeyList();
+  } catch (error) {
+    toast(error.message || "Не удалось создать ключ.");
+  } finally { submit.disabled = false; }
+});
+$("#copyNewAccessKey").addEventListener("click", async () => {
+  const key = $("#newAccessKeyValue").textContent;
+  try { await navigator.clipboard.writeText(key); toast("Ключ скопирован."); }
+  catch { toast("Не удалось скопировать. Выдели ключ вручную."); }
+});
+
+// The access gate trusts only the server-side Telegram owner check or a valid key.
+// GitHub Pages itself cannot make static files private; production enforcement requires a Worker/edge host.
+const accessGate = $("#accessGate");
+const accessForm = $("#accessKeyForm");
+const accessMessage = $("#accessGateMessage");
+function grantSiteAccess(message) {
+  document.body.classList.add("access-granted");
+  accessGate.hidden = true;
+  $("#appRoot").removeAttribute("inert");
+  if (message) toast(message);
+}
+async function validateSiteAccess(key) {
+  if (!adminConfigured) throw new Error("Защищённый сервер пока не подключён. Сайт остаётся закрытым до настройки Cloudflare Worker.");
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (tg && tg.initData) headers.set("X-Telegram-Init-Data", tg.initData);
+  const response = await fetch(ADMIN_API_ENDPOINT.replace(/\/+$/, "") + "/api/access/validate", {
+    method: "POST", headers, body: JSON.stringify({ key: key || "" }), cache: "no-store"
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok !== true) throw new Error(data.error || "Не удалось подтвердить доступ.");
+  return data;
+}
+async function bootAccessGate() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+  accessMessage.textContent = "Проверяем доступ…";
+  try {
+    const result = await validateSiteAccess("");
+    grantSiteAccess(result.owner ? "Добро пожаловать, владелец GameHub." : "Доступ подтверждён.");
+  } catch (error) {
+    accessMessage.textContent = error.message || "Введи действующий ключ доступа.";
+    if (tg && tg.initData) {
+      $("#accessDescription").textContent = "Если ты владелец, открой Mini App из Telegram. Для остальных пользователей нужен действующий ключ.";
+    }
+  }
+}
+accessForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const input = $("#accessKeyInput"), submit = $("#accessKeySubmit");
+  submit.disabled = true;
+  accessMessage.textContent = "Проверяем ключ…";
+  try {
+    await validateSiteAccess(input.value.trim());
+    grantSiteAccess("Ключ принят. Добро пожаловать в GameHub.");
+    input.value = "";
+  } catch (error) {
+    accessMessage.textContent = error.message || "Ключ не принят.";
+  } finally { submit.disabled = false; }
+});
+bootAccessGate();
