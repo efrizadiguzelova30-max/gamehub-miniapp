@@ -488,3 +488,74 @@ $("#osintUserForm").addEventListener("submit", e => {
 })();
 
 
+
+// Access-key gate: requires a deployed Worker URL to become mandatory.
+
+(function setupAccessGate(){
+  const gate=$("#accessGate"),app=$("#luniumApp"),form=$("#accessKeyForm"),input=$("#accessKeyInput"),result=$("#accessKeyResult"),message=$("#accessGateMessage");
+  if(!gate||!app||!form)return;
+  if(!accessApiConfigured){
+    gate.hidden=true;app.hidden=false;
+    if(message)message.textContent="Сервис ключей ещё не подключён. После настройки сервера вход будет по ключу.";
+    return;
+  }
+  let granted=false;
+  try{granted=sessionStorage.getItem("lunium-access-granted")==="yes"}catch(_){}
+  if(!granted){gate.hidden=false;app.hidden=true}
+  form.addEventListener("submit",async event=>{
+    event.preventDefault();
+    const key=input.value.trim().toUpperCase();
+    if(!/^LUN-(?:[A-F0-9]{8}-){3}[A-F0-9]{8}$/.test(key)){result.textContent="Проверь формат ключа.";return}
+    const submit=form.querySelector('button[type="submit"]');
+    submit.disabled=true;result.textContent="Проверяем ключ на сервере…";
+    try{
+      const response=await fetch(ACCESS_API_ENDPOINT.replace(/\/+$/,"")+"/api/access/validate",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({key})});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||data.valid!==true)throw new Error(data.error||"Ключ недействителен.");
+      try{sessionStorage.setItem("lunium-access-granted","yes")}catch(_){}
+      gate.hidden=true;app.hidden=false;result.textContent="";toast("Доступ подтверждён.");
+    }catch(error){result.textContent=error.message||"Не удалось проверить ключ. Попробуй позже."}
+    finally{submit.disabled=false}
+  });
+})();
+
+// Owner-only key generation, listing, and reset.
+
+async function loadAccessKeyList(){
+  const list=$("#accessKeyList");if(!list)return;
+  list.replaceChildren();
+  const data=await adminRequest("/api/admin/keys");
+  const keys=Array.isArray(data.keys)?data.keys:[];
+  if(!keys.length){const p=document.createElement("p");p.className="subtle-note";p.textContent="Ключей пока нет. Создай ключ здесь или командой /key 24 в боте.";list.append(p);return}
+  keys.forEach(k=>{
+    const row=document.createElement("div");row.className="admin-row key-row";
+    const meta=document.createElement("div");meta.className="key-meta";
+    const status=document.createElement("b");status.className="key-status "+(k.active?"active":"inactive");status.textContent=k.active?"АКТИВЕН":k.revoked_at?"ОТОЗВАН":"ИСТЁК";
+    const expires=document.createElement("small");expires.textContent="Истекает: "+new Date(k.expires_at).toLocaleString("ru-RU");
+    const usage=document.createElement("small");usage.textContent="Использований: "+String(k.used_count||0)+(k.last_used_at?" · последний вход: "+new Date(k.last_used_at).toLocaleString("ru-RU"):"");
+    meta.append(status,expires,usage);row.append(meta);list.append(row);
+  });
+}
+$("#accessKeyCreateForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const form=event.currentTarget,button=form.querySelector('button[type="submit"]'),hours=Number(form.elements.hours.value);
+  button.disabled=true;
+  try{
+    const data=await adminRequest("/api/admin/keys",{method:"POST",body:JSON.stringify({hours})});
+    const box=$("#accessKeyCreated");box.hidden=false;box.replaceChildren();
+    const title=document.createElement("b");title.textContent="Новый ключ — скопируй сейчас, повторно он не показывается.";
+    const code=document.createElement("p");code.textContent=data.key;code.style.cssText="font-weight:900;letter-spacing:1px;word-break:break-all";
+    const copy=document.createElement("button");copy.type="button";copy.className="btn secondary";copy.textContent="Скопировать ключ";
+    copy.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(data.key);toast("Ключ скопирован.")}catch(_){toast("Выдели ключ и скопируй вручную.")}});
+    box.append(title,code,copy);toast("Ключ создан.");await loadAccessKeyList();
+  }catch(error){toast(error.message||"Не удалось создать ключ.")}
+  finally{button.disabled=false}
+});
+$("#accessKeyRefresh")?.addEventListener("click",async()=>{try{await loadAccessKeyList();toast("Список обновлён.")}catch(error){toast(error.message||"Не удалось загрузить ключи.")}});
+$("#accessKeyReset")?.addEventListener("click",async()=>{
+  if(!window.confirm("Отозвать ВСЕ ключи доступа? Все пользователи должны будут получить новые ключи."))return;
+  const button=$("#accessKeyReset");button.disabled=true;
+  try{const data=await adminRequest("/api/admin/keys/reset",{method:"POST",body:"{}"});toast("Сброшено ключей: "+String(data.revoked||0));await loadAccessKeyList()}
+  catch(error){toast(error.message||"Не удалось сбросить ключи.")}
+  finally{button.disabled=false}
+});
