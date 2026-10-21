@@ -82,6 +82,7 @@ $("#chatForm").addEventListener("submit", async e => {
 const ADMIN_API_ENDPOINT = "PASTE_CLOUDFLARE_ADMIN_WORKER_URL_HERE";
 const adminConfigured = /^https:\/\//.test(ADMIN_API_ENDPOINT) && !ADMIN_API_ENDPOINT.includes("PASTE_");
 const adminNav = $("#adminNav");
+if (adminNav) adminNav.hidden = true; // Reveal only after server-side Telegram role verification.
 const maintenanceBanner = $("#maintenanceBanner");
 let adminActor = null;
 if (!adminConfigured) {
