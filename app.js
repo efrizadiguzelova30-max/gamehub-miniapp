@@ -8,7 +8,7 @@ const games=[
 {id:"genshin",name:"Genshin Impact",cat:"Ролевые",emoji:"🌌",color:"linear-gradient(135deg,#6c8ed2,#393b79)",desc:"Приключения, исследование и отряд персонажей.",tip:"Подбирай персонажей с дополняющими навыками и улучшай оружие основного героя."}
 ];
 const quests=[{id:"q1",title:"Изучи новую механику",desc:"Выбери игру и попробуй то, чего раньше не делал.",reward:20},{id:"q2",title:"Прочитай игровой совет",desc:"Открой карточку игры и ознакомься с рекомендацией.",reward:15},{id:"q3",title:"Составь план на матч",desc:"Определи цель и способ улучшить результат.",reward:25}];
-const $=s=>document.querySelector(s),$=s=>[...document.querySelectorAll(s)];
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 // Public Telegram numeric ID is used only to reveal the owner UI; every privileged API action must still be verified by admin-worker.js.
 const OWNER_TELEGRAM_ID = "7271410328";
 function getTelegramUser(){return window.Telegram?.WebApp?.initDataUnsafe?.user||null}
