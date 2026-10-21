@@ -7,8 +7,8 @@ This is the server-side proxy for the Mini App chat. It keeps the Gemini API key
 2. Create a Cloudflare D1 database and run `migrations/0003_ai_usage.sql`.
 3. Bind that database to the Worker using the binding name `DB`.
 4. Add the Gemini key as a Worker secret named `GEMINI_API_KEY` (for example with Wrangler secrets). Never put it in `app.js`, HTML, or Git.
-5. Deploy the Worker and copy its HTTPS URL.
-6. In `app.js`, replace `PASTE_CLOUDFLARE_WORKER_URL_HERE` with the deployed Worker URL. The frontend appends no path, so the Worker URL should be the base URL and the Worker handles `/api/chat`.
+5. Deploy the Worker and copy its HTTPS URL and set `GAMEHUB_AI_ENDPOINT` in `app.js` to the full route, ending in `/api/chat` (for example, `https://your-worker.workers.dev/api/chat`).
+6. In `app.js`, replace `PASTE_CLOUDFLARE_WORKER_URL_HERE` with the deployed Worker URL. The frontend calls the configured endpoint directly, so include `/api/chat` in the URL.
 7. Test from the published Mini App. Confirm the chat returns an actual answer and that the sixth request in one minute is rate-limited.
 
 ## Safeguards and limits
