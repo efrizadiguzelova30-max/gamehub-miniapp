@@ -87,7 +87,7 @@ async function handleTelegramWebhook(request, env) {
 export default {async fetch(request,env){
   const url=new URL(request.url);
   if(url.pathname==="/telegram/webhook")return request.method==="POST"?handleTelegramWebhook(request,env):json({error:"Method not allowed."},405);
-  if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
+  if(url.pathname!=="/api/bot/access-keys"&&request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
   if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
   if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
   if(url.pathname==="/api/access/validate"&&request.method==="POST"){
