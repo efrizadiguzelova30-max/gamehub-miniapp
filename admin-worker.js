@@ -87,16 +87,16 @@ async function handleTelegramWebhook(request, env) {
     }
     if(!env.DB){await telegramSend(env,chatId,"База ключей не настроена.");return json({ok:true});}
     if(command==="/key"||command==="/generatekey"){
-      const rawHours=(message.text.trim().split(/\\s+/)[1]||"24");
+      const rawHours=(message.text.trim().split(/\s+/)[1]||"24");
       const hours=Number(rawHours);
       if(!Number.isInteger(hours)||hours<1||hours>720){await telegramSend(env,chatId,"Формат: /key [часы]. Укажи от 1 до 720. Например: /key 24");return json({ok:true});}
       const created=await createAccessKey(env.DB,senderId,hours);
       await audit(env.DB,senderId,"access_key_created",created.expires_at);
-      await telegramSend(env,chatId,"🔑 Ключ доступа LUNIUM создан.\\n\\n"+created.key+"\\n\\nСрок действия: "+hours+" ч.\\nДействует до: "+created.expires_at+"\\n\\nОтправь ключ тому, кому разрешаешь вход. Не публикуй его в открытом чате.");
+      await telegramSend(env,chatId,"🔑 Ключ доступа LUNIUM создан.\n\n"+created.key+"\n\nСрок действия: "+hours+" ч.\nДействует до: "+created.expires_at+"\n\nОтправь ключ тому, кому разрешаешь вход. Не публикуй его в открытом чате.");
     } else if(command==="/keys"){
       const rows=await env.DB.prepare("SELECT created_at,expires_at,revoked_at,used_count,last_used_at FROM access_keys ORDER BY created_at DESC LIMIT 30").all();
       const keys=rows.results||[];
-      await telegramSend(env,chatId,keys.length?"Последние ключи (сам ключ не хранится и повторно не показывается):\\n"+keys.map((k,i)=>(i+1)+". "+(k.revoked_at?"ОТОЗВАН":new Date(k.expires_at).getTime()<Date.now()?"ИСТЁК":"активен")+" · до "+k.expires_at+" · входов "+k.used_count).join("\\n"):"Ключей пока нет.");
+      await telegramSend(env,chatId,keys.length?"Последние ключи (сам ключ не хранится и повторно не показывается):\n"+keys.map((k,i)=>(i+1)+". "+(k.revoked_at?"ОТОЗВАН":new Date(k.expires_at).getTime()<Date.now()?"ИСТЁК":"активен")+" · до "+k.expires_at+" · входов "+k.used_count).join("\n"):"Ключей пока нет.");
     } else {
       const result=await env.DB.prepare("UPDATE access_keys SET revoked_at=? WHERE revoked_at IS NULL").bind(new Date().toISOString()).run();
       await audit(env.DB,senderId,"access_keys_reset",String(result.meta?.changes||0));
