@@ -20,7 +20,7 @@ function renderQuests(){$("#allQuests").innerHTML=quests.map(qCard).join("");$("
 function toast(s){const t=$("#toast");t.textContent=s;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),2400)}
 function openGame(id){const g=games.find(x=>x.id===id);if(!g)return;$("#dialogContent").innerHTML=`<div class="cover" style="background:${g.color};width:68px;height:68px">${g.emoji}</div><p class="tag">${g.cat}</p><h2>${g.name}</h2><p class="subtle-note">${g.desc}</p><div class="tip"><b>💡 Совет</b><br>${g.tip}</div><button class="btn primary full-button" id="saveTip">Запомнил совет</button>`;$("#gameDialog").showModal();$("#saveTip").onclick=()=>{toast("Отлично! Совет изучен");$("#gameDialog").close()}}
 function tab(n){const target=$("#view-"+n);if(!target)return;$("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===n));$(".view").forEach(v=>v.classList.toggle("active",v===target));if(n==="games")renderGames();if(n==="graph"){const p=$("#graphPoints");if(p)p.textContent=String(state.points);const q=$("#graphTasks");if(q)q.textContent=state.done.length+"/3"}if(n==="profile"){const u=window.Telegram?.WebApp?.initDataUnsafe?.user;if(u){const p=$("#profileName");if(p)p.textContent=u.first_name||"Пользователь";const s=$("#profileStatus");if(s)s.textContent="Telegram-профиль обнаружен. Роль проверяется сервером."}}const d=$("#sideDrawer"),s=$("#drawerScrim");d?.classList.remove("open");s?.classList.remove("open");window.scrollTo({top:0,behavior:"smooth"})}
-const menuToggle=$("#menuToggle"),sideDrawer=$("#sideDrawer"),drawerScrim=$("#drawerScrim");function closeDrawer(){sideDrawer?.classList.remove("open");drawerScrim?.classList.remove("open")}menuToggle?.addEventListener("click",()=>{sideDrawer?.classList.add("open");drawerScrim?.classList.add("open")});$("#sideClose")?.addEventListener("click",closeDrawer);drawerScrim?.addEventListener("click",closeDrawer);$("#settingsReset")?.addEventListener("click",()=>{state={points:0,done:[]};save();toast("Прогресс сброшен")});$("#themeToggle")?.addEventListener("click",()=>{document.body.classList.toggle("bright-accent");toast("Оформление обновлено")});$("#lockAccessButton")?.addEventListener("click",()=>{if(!adminActor||adminActor.role!=="owner"){toast("Блокировка доступна только владельцу после проверки сервера.");return}tab("admin")});
+const menuToggle=$("#menuToggle"),sideDrawer=$("#sideDrawer"),drawerScrim=$("#drawerScrim");function closeDrawer(){sideDrawer?.classList.remove("open");drawerScrim?.classList.remove("open")}menuToggle?.addEventListener("click",()=>{sideDrawer?.classList.add("open");drawerScrim?.classList.add("open")});$("#sideClose")?.addEventListener("click",closeDrawer);drawerScrim?.addEventListener("click",closeDrawer);$("#settingsReset")?.addEventListener("click",()=>{state={points:0,done:[]};save();toast("Прогресс сброшен")});$("#themeToggle")?.addEventListener("click",()=>{document.body.classList.toggle("bright-accent");toast("Оформление обновлено")});$("#lockAccessButton")?.addEventListener("click",()=>{tab("admin");if(!adminActor||adminActor.role!=="owner")toast("Открыта справочная страница доступа. Изменять блокировку может только подтверждённый владелец.")});
 document.addEventListener("click",e=>{const t=e.target.closest("[data-tab]");if(t){tab(t.dataset.tab);return}const go=e.target.closest("[data-goto]");if(go){tab(go.dataset.goto);return}const g=e.target.closest("[data-game]");if(g){openGame(g.dataset.game);return}if(e.target.closest("[data-random-game]")){const options=games.filter(x=>x.id!==lastRandomGame);const pick=options[Math.floor(Math.random()*options.length)]||games[0];lastRandomGame=pick.id;openGame(pick.id);return}const q=e.target.closest("[data-quest]");if(q){const item=quests.find(x=>x.id===q.dataset.quest);if(!item)return;if(state.done.includes(item.id)){state.done=state.done.filter(x=>x!==item.id);state.points=Math.max(0,state.points-item.reward);toast("Задание отменено")}else{state.done.push(item.id);state.points+=item.reward;toast("+"+item.reward+" очков!")}save();return}const f=e.target.closest("[data-filter]");if(f){filter=f.dataset.filter;$$("[data-filter]").forEach(b=>b.classList.toggle("selected",b===f));renderGames();return}const prompt=e.target.closest("[data-prompt]");if(prompt){$("#chatInput").value=prompt.dataset.prompt;$("#chatInput").focus()}});
 $("#searchInput")?.addEventListener("input",renderGames);$("#closeDialog").onclick=()=>$("#gameDialog").close();$("#resetButton").onclick=()=>{state={points:0,done:[]};save();toast("Демо-прогресс сброшен")};
 if(window.Telegram&&window.Telegram.WebApp){const tg=window.Telegram.WebApp;tg.ready();tg.expand();const u=tg.initDataUnsafe?.user;if(u)$("#avatar").textContent=(u.first_name||"G").slice(0,2).toUpperCase()}
@@ -83,8 +83,8 @@ $("#chatForm").addEventListener("submit", async e => {
 const ADMIN_API_ENDPOINT = "PASTE_CLOUDFLARE_ADMIN_WORKER_URL_HERE";
 const adminConfigured = /^https:\/\//.test(ADMIN_API_ENDPOINT) && !ADMIN_API_ENDPOINT.includes("PASTE_");
 const adminNav = $("#adminNav");
-if (adminNav) adminNav.hidden = true; // Reveal only after server-side Telegram role verification.
-const sideAdminNav=$("#sideAdminNav");if(sideAdminNav)sideAdminNav.hidden=true;
+if (adminNav) adminNav.hidden = false; // The status page is visible; privileged controls remain server-gated.
+const sideAdminNav=$("#sideAdminNav");if(sideAdminNav)sideAdminNav.hidden=false;
 const maintenanceBanner = $("#maintenanceBanner");
 let adminActor = null;
 if (!adminConfigured) {
@@ -427,3 +427,56 @@ $("#osintUserForm").addEventListener("submit", e => {
     box.append(a);
   }
 });
+
+
+// Optional relaxing background ambience (generated locally; no external track or tracking request).
+// Audio starts only after the visitor presses the button because mobile browsers block autoplay.
+(function setupRelaxMusic(){
+  const button = document.querySelector("#relaxMusicButton");
+  if (!button) return;
+  let context = null, master = null, oscillators = [], playing = false, lfo = null, lfoGain = null;
+  function stopMusic(){
+    playing = false;
+    try { oscillators.forEach(o => { try { o.stop(); } catch (_) {} }); if (lfo) lfo.stop(); } catch (_) {}
+    oscillators = []; lfo = null; lfoGain = null;
+    if (master && context) { try { master.gain.setTargetAtTime(0, context.currentTime, 0.18); } catch (_) {} }
+    button.textContent = "♫ Включить музыку";
+    button.setAttribute("aria-pressed","false");
+  }
+  async function startMusic(){
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) { if (typeof toast === "function") toast("Этот браузер не поддерживает фоновую музыку."); return; }
+    context = context || new AudioContextClass();
+    await context.resume();
+    master = context.createGain();
+    master.gain.value = 0.0001;
+    master.connect(context.destination);
+    // Gentle, slow chord with rounded sine waves and no sharp percussion.
+    [196.00, 246.94, 293.66, 369.99].forEach((hz, i) => {
+      const osc = context.createOscillator(), gain = context.createGain();
+      osc.type = "sine";
+      osc.frequency.value = hz;
+      gain.gain.value = [0.10,0.055,0.045,0.025][i];
+      osc.connect(gain); gain.connect(master); osc.start();
+      oscillators.push(osc);
+    });
+    lfo = context.createOscillator(); lfo.type = "sine"; lfo.frequency.value = 0.07;
+    lfoGain = context.createGain(); lfoGain.gain.value = 0.018;
+    lfo.connect(lfoGain); lfoGain.connect(master.gain); lfo.start();
+    master.gain.setTargetAtTime(0.13, context.currentTime, 1.6);
+    playing = true;
+    button.textContent = "♫ Выключить музыку";
+    button.setAttribute("aria-pressed","true");
+  }
+  button.addEventListener("click", async () => {
+    if (playing) { stopMusic(); return; }
+    button.disabled = true;
+    try { await startMusic(); }
+    catch (_) { if (typeof toast === "function") toast("Не удалось включить звук. Проверь настройки браузера."); }
+    finally { button.disabled = false; }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && playing && context) context.suspend().catch(()=>{});
+    else if (!document.hidden && playing && context) context.resume().catch(()=>{});
+  });
+})();
