@@ -81,8 +81,8 @@ async function handleTelegramWebhook(request, env) {
 
   if (["/key","/generatekey","/keys","/resetkeys"].includes(command)) {
     const senderId=String(message.from.id);
-    if(senderId!==String(env.OWNER_TELEGRAM_ID)){
-      await telegramSend(env,chatId,"⛔ Генератор ключей доступен только владельцу бота.");
+    if(senderId!==String(env.OWNER_TELEGRAM_ID)||message.chat.type!=="private"){
+      await telegramSend(env,chatId,"⛔ Генератор ключей доступен только владельцу в личном чате с ботом.");
       return json({ok:true});
     }
     if(!env.DB){await telegramSend(env,chatId,"База ключей не настроена.");return json({ok:true});}
