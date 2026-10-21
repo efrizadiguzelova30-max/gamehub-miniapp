@@ -85,7 +85,7 @@ const ACCESS_API_ENDPOINT = ADMIN_API_ENDPOINT;
 const accessApiConfigured = /^https:\/\//.test(ACCESS_API_ENDPOINT) && !ACCESS_API_ENDPOINT.includes("PASTE_");
 const adminConfigured = /^https:\/\//.test(ADMIN_API_ENDPOINT) && !ADMIN_API_ENDPOINT.includes("PASTE_");
 const adminNav = $("#adminNav");
-if (adminNav) adminNav.hidden = false; // The status page is visible; privileged controls remain server-gated.
+if (adminNav) if(adminNav)adminNav.hidden = false; // The status page is visible; privileged controls remain server-gated.
 const sideAdminNav=$("#sideAdminNav");if(sideAdminNav)sideAdminNav.hidden=false;
 const maintenanceBanner = $("#maintenanceBanner");
 let adminActor = null;
@@ -235,7 +235,8 @@ async function loadAdminPanel() {
     adminActor = data.actor || null;
     adminFlags = { siteLocked: Boolean(data.siteLocked), botEnabled: Boolean(data.botEnabled) };
     if (adminActor && ["owner", "admin", "co_owner"].includes(adminActor.role)) {
-      adminNav.hidden = false;
+      if(adminNav)adminNav.hidden = false;
+      const unavailablePanel=$("#adminUnavailable");if(unavailablePanel)unavailablePanel.hidden=true;
       if (sideAdminNav) sideAdminNav.hidden = false;
       $("#adminIdentity").textContent = "Вход подтверждён через Telegram. Уровень доступа: " +
         (adminActor.role === "owner" ? "владелец" : adminActor.role === "co_owner" ? "совладелец" : "администратор") + ".";
