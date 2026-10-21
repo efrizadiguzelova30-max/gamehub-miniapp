@@ -118,11 +118,6 @@ async function handleTelegramWebhook(request, env) {
 export default {async fetch(request,env){
   const url=new URL(request.url);
   if(url.pathname==="/telegram/webhook")return request.method==="POST"?handleTelegramWebhook(request,env):json({error:"Method not allowed."},405);
-  if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
-  if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
-  if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
-
-
   if(url.pathname==="/api/bot/generate-key"&&request.method==="POST"){
     const supplied=request.headers.get("X-Bot-Command-Secret")||"";
     if(!env.BOT_COMMAND_SECRET||!equal(supplied,env.BOT_COMMAND_SECRET))return json({error:"Forbidden."},403);
@@ -141,7 +136,12 @@ export default {async fetch(request,env){
     const result=await env.DB.prepare("UPDATE access_keys SET revoked_at=? WHERE revoked_at IS NULL").bind(now).run();
     return json({ok:true,revoked:result.meta?.changes||0});
   }
-\n  if(url.pathname==="/api/access/validate"&&request.method==="POST"){
+\n\n  if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
+  if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
+  if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
+
+
+  if(url.pathname==="/api/access/validate"&&request.method==="POST"){
     if(!env.DB)return json({error:"Сервис ключей не настроен."},503);
     let b;try{b=await bodyJson(request)}catch(e){return json({error:"Некорректный запрос."},400)}
     const key=typeof b.key==="string"?b.key.trim().toUpperCase():"";
