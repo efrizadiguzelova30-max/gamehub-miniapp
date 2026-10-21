@@ -28,7 +28,7 @@ $("#featuredGames").innerHTML=games.slice(0,4).map(gameCard).join("");renderGame
 function allowedLookup(){const now=Date.now();lookupTimes=lookupTimes.filter(t=>now-t<60000);if(now-lastLookup<2500){toast("Подожди пару секунд перед следующим поиском.");return false}if(lookupTimes.length>=5){toast("Лимит: не больше 5 поисков в минуту.");return false}lastLookup=now;lookupTimes.push(now);return true}
 $("#robloxForm").addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget;if(form.elements.website.value){toast("Запрос отклонён.");return}const username=$("#robloxUsername").value.trim();const box=$("#robloxResult");if(!/^[A-Za-z0-9_]{3,20}$/.test(username)){box.textContent="Проверь имя: от 3 до 20 символов, только буквы, цифры и _.";return}if(!allowedLookup())return;const btn=$("#robloxSubmit");btn.disabled=true;btn.textContent="Ищем…";box.textContent="Идёт запрос к публичному поиску Roblox…";try{const response=await fetch("https://users.roblox.com/v1/usernames/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({usernames:[username],excludeBannedUsers:false})});if(!response.ok)throw new Error("HTTP "+response.status);const data=await response.json();const matches=Array.isArray(data.data)?data.data:[];if(!matches.length){box.textContent="Пользователь не найден. Проверь точное имя и попробуй позже.";return}const user=matches[0];const safeName=String(user.name||username);const display=String(user.displayName||safeName);const id=Number(user.id);if(!Number.isSafeInteger(id)||id<1)throw new Error("Invalid ID");box.innerHTML='<div class="result-user"><div class="result-avatar">🎮</div><div><b></b><small></small><small>ID: '+id+'</small></div></div><button class="copy-id" id="copyRobloxId">Копировать ID</button> <a class="copy-id" href="https://www.roblox.com/users/'+id+'/profile" target="_blank" rel="noopener noreferrer">Открыть профиль ↗</a>';box.querySelector("b").textContent=display;box.querySelectorAll("small")[0].textContent="@"+safeName;$("#copyRobloxId").onclick=async()=>{try{await navigator.clipboard.writeText(String(id));toast("ID скопирован")}catch(err){toast("Не удалось скопировать. Выдели ID вручную.")}}}catch(err){box.textContent="Не удалось получить ответ Roblox. Возможно, запрос заблокирован браузером (CORS) или сервис временно недоступен. Открой официальный поиск Roblox и попробуй позже."; }finally{btn.disabled=false;btn.textContent="Найти ID"}});
 // Real AI chat uses a Cloudflare Worker proxy. Never put the Gemini API key in this file.
-const GAMEHUB_AI_ENDPOINT = "PASTE_CLOUDFLARE_WORKER_URL_HERE";
+const GAMEHUB_AI_ENDPOINT = "PASTE_CLOUDFLARE_WORKER_URL_HERE/api/chat";
 $("#chatForm").addEventListener("submit", async e => {
   e.preventDefault();
   const form = e.currentTarget;
@@ -38,7 +38,7 @@ $("#chatForm").addEventListener("submit", async e => {
   if (chatTimes.length >= 5) { toast("Лимит: 5 сообщений в минуту. Попробуй позже."); return; }
   const text = $("#chatInput").value.trim();
   if (!text) return;
-  if (GAMEHUB_AI_ENDPOINT === "PASTE_CLOUDFLARE_WORKER_URL_HERE") {
+  if (GAMEHUB_AI_ENDPOINT.includes("PASTE_")) {
     toast("Сначала подключи адрес Cloudflare Worker по инструкции.");
     const reply = document.createElement("div");
     reply.className = "message bot-message";
@@ -82,6 +82,8 @@ $("#chatForm").addEventListener("submit", async e => {
 const ADMIN_API_ENDPOINT = "PASTE_CLOUDFLARE_ADMIN_WORKER_URL_HERE";
 const adminConfigured = /^https:\/\//.test(ADMIN_API_ENDPOINT) && !ADMIN_API_ENDPOINT.includes("PASTE_");
 const adminNav = $("#adminNav");
+// Hide privileged navigation by default; it is revealed only after the server verifies Telegram initData and the assigned role.
+if (adminNav) adminNav.hidden = true;
 const maintenanceBanner = $("#maintenanceBanner");
 let adminActor = null;
 if (!adminConfigured) {
@@ -167,6 +169,52 @@ async function loadAdminList() {
   }
 }
 
+async function loadAccessKeyList() {
+  const list = $("#accessKeyList");
+  if (!list) return;
+  list.replaceChildren();
+  const data = await adminRequest("/api/admin/access-keys");
+  const keys = Array.isArray(data.keys) ? data.keys : [];
+  if (!keys.length) {
+    const empty = document.createElement("p");
+    empty.className = "subtle-note";
+    empty.textContent = "Ключи ещё не создавались.";
+    list.append(empty);
+    return;
+  }
+  for (const entry of keys) {
+    const row = document.createElement("div");
+    row.className = "access-key-row";
+    const details = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = (entry.label || "Ключ доступа") + " · " + String(entry.key_prefix || "GH-…");
+    const meta = document.createElement("small");
+    const expiry = entry.expires_at ? new Date(entry.expires_at).toLocaleString("ru-RU") : "без срока";
+    meta.textContent = (entry.revoked_at ? "Отозван" : "Активен") + " · создан " + new Date(entry.created_at).toLocaleDateString("ru-RU") + " · срок: " + expiry;
+    details.append(title, meta);
+    row.append(details);
+    if (!entry.revoked_at) {
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "btn secondary";
+      revoke.textContent = "Сбросить";
+      revoke.addEventListener("click", async () => {
+        if (!window.confirm("Отозвать этот ключ? Пользователь больше не сможет войти с ним.")) return;
+        revoke.disabled = true;
+        try {
+          await adminRequest("/api/admin/access-keys?id=" + encodeURIComponent(String(entry.id)), { method: "DELETE" });
+          toast("Ключ доступа отозван.");
+          await loadAccessKeyList();
+        } catch (error) {
+          toast(error.message || "Не удалось отозвать ключ.");
+          revoke.disabled = false;
+        }
+      });
+      row.append(revoke);
+    }
+    list.append(row);
+  }
+}
 async function loadGroupList() {
   const list = $("#managedGroupList");
   const select = $("#moderationGroup");
@@ -239,6 +287,7 @@ async function loadAdminPanel() {
       if (adminActor.role === "owner") {
         renderAdminFlags();
         await loadAdminList();
+        await loadAccessKeyList();
       }
       await loadGroupList();
     }
@@ -423,3 +472,81 @@ $("#osintUserForm").addEventListener("submit", e => {
     box.append(a);
   }
 });
+
+
+$("#accessKeyCreateForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector("button[type='submit']");
+  submit.disabled = true;
+  try {
+    const data = await adminRequest("/api/admin/access-keys", {
+      method: "POST",
+      body: JSON.stringify({ label: form.elements.label.value.trim(), expiresDays: Number(form.elements.expiresDays.value) })
+    });
+    $("#newAccessKeyNotice").hidden = false;
+    $("#newAccessKeyValue").textContent = String(data.key || "");
+    form.elements.label.value = "";
+    toast("Новый ключ создан. Скопируй его сейчас.");
+    await loadAccessKeyList();
+  } catch (error) {
+    toast(error.message || "Не удалось создать ключ.");
+  } finally { submit.disabled = false; }
+});
+$("#copyNewAccessKey").addEventListener("click", async () => {
+  const key = $("#newAccessKeyValue").textContent;
+  try { await navigator.clipboard.writeText(key); toast("Ключ скопирован."); }
+  catch { toast("Не удалось скопировать. Выдели ключ вручную."); }
+});
+
+// The access gate trusts only the server-side Telegram owner check or a valid key.
+// GitHub Pages itself cannot make static files private; production enforcement requires a Worker/edge host.
+const accessGate = $("#accessGate");
+const accessForm = $("#accessKeyForm");
+const accessMessage = $("#accessGateMessage");
+function grantSiteAccess(message) {
+  document.body.classList.add("access-granted");
+  accessGate.hidden = true;
+  $("#appRoot").removeAttribute("inert");
+  if (message) toast(message);
+}
+async function validateSiteAccess(key) {
+  if (!adminConfigured) throw new Error("Защищённый сервер пока не подключён. Сайт остаётся закрытым до настройки Cloudflare Worker.");
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (tg && tg.initData) headers.set("X-Telegram-Init-Data", tg.initData);
+  const response = await fetch(ADMIN_API_ENDPOINT.replace(/\/+$/, "") + "/api/access/validate", {
+    method: "POST", headers, body: JSON.stringify({ key: key || "" }), cache: "no-store"
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok !== true) throw new Error(data.error || "Не удалось подтвердить доступ.");
+  return data;
+}
+async function bootAccessGate() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+  accessMessage.textContent = "Проверяем доступ…";
+  try {
+    const result = await validateSiteAccess("");
+    grantSiteAccess(result.owner ? "Добро пожаловать, владелец GameHub." : "Доступ подтверждён.");
+  } catch (error) {
+    accessMessage.textContent = error.message || "Введи действующий ключ доступа.";
+    if (tg && tg.initData) {
+      $("#accessDescription").textContent = "Если ты владелец, открой Mini App из Telegram. Для остальных пользователей нужен действующий ключ.";
+    }
+  }
+}
+accessForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const input = $("#accessKeyInput"), submit = $("#accessKeySubmit");
+  submit.disabled = true;
+  accessMessage.textContent = "Проверяем ключ…";
+  try {
+    await validateSiteAccess(input.value.trim());
+    grantSiteAccess("Ключ принят. Добро пожаловать в GameHub.");
+    input.value = "";
+  } catch (error) {
+    accessMessage.textContent = error.message || "Ключ не принят.";
+  } finally { submit.disabled = false; }
+});
+bootAccessGate();
