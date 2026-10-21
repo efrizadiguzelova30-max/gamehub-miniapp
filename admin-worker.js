@@ -29,7 +29,15 @@ async function bodyJson(request){
 }
 async function getSetting(db,key,fallback){const r=await db.prepare("SELECT value FROM site_settings WHERE key = ?").bind(key).first();return r?r.value:fallback}
 async function setSetting(db,key,value){await db.prepare("INSERT INTO site_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(key,value,new Date().toISOString()).run()}
-async function audit(db,actor,action,target=""){await db.prepare("INSERT INTO audit_log(actor_telegram_id,action,target,created_at) VALUES(?,?,?,?)").bind(actor,action,String(target).slice(0,120),new Date().toISOString()).run()}
+
+function keyHash(value){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(value)).then(buf=>[...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join(""))}
+function newAccessKey(){const bytes=crypto.getRandomValues(new Uint8Array(16));return "LUN-"+[...bytes].map(b=>b.toString(16).padStart(2,"0")).join("").toUpperCase().match(/.{1,8}/g).join("-")}
+async function createAccessKey(db,actor,hours){
+  const key=newAccessKey(),now=Date.now(),createdAt=new Date(now).toISOString(),expiresAt=new Date(now+hours*3600000).toISOString();
+  await db.prepare("INSERT INTO access_keys(key_hash,created_by,created_at,expires_at,revoked_at,used_count,last_used_at) VALUES(?,?,?, ?,NULL,0,NULL)").bind(await keyHash(key),String(actor),createdAt,expiresAt).run();
+  return {key,created_at:createdAt,expires_at:expiresAt,hours};
+}
+\nasync function audit(db,actor,action,target=""){await db.prepare("INSERT INTO audit_log(actor_telegram_id,action,target,created_at) VALUES(?,?,?,?)").bind(actor,action,String(target).slice(0,120),new Date().toISOString()).run()}
 async function getStatus(db){return{siteLocked:(await getSetting(db,"site_locked","false"))==="true",botEnabled:(await getSetting(db,"bot_enabled","true"))==="true"}}
 async function auth(request,env){
   if(!env.DB||!env.BOT_TOKEN||!env.OWNER_TELEGRAM_ID)return{error:json({error:"Admin API не настроен. Нужны D1 DB, BOT_TOKEN и OWNER_TELEGRAM_ID."},503)};
@@ -70,7 +78,33 @@ async function handleTelegramWebhook(request, env) {
     "/help": "Команды GameHub:\n/start — запуск\n/help — помощь\n/status — состояние сервиса\n/groupid — ID текущего чата (в группах).",
     "/status": "Состояние GameHub: бот включён. Настройки сайта и права управления доступны владельцу через защищённую мини-панель."
   };
-  if (command === "/groupid") {
+
+  if (["/key","/generatekey","/keys","/resetkeys"].includes(command)) {
+    const senderId=String(message.from.id);
+    if(senderId!==String(env.OWNER_TELEGRAM_ID)){
+      await telegramSend(env,chatId,"⛔ Генератор ключей доступен только владельцу бота.");
+      return json({ok:true});
+    }
+    if(!env.DB){await telegramSend(env,chatId,"База ключей не настроена.");return json({ok:true});}
+    if(command==="/key"||command==="/generatekey"){
+      const rawHours=(message.text.trim().split(/\\s+/)[1]||"24");
+      const hours=Number(rawHours);
+      if(!Number.isInteger(hours)||hours<1||hours>720){await telegramSend(env,chatId,"Формат: /key [часы]. Укажи от 1 до 720. Например: /key 24");return json({ok:true});}
+      const created=await createAccessKey(env.DB,senderId,hours);
+      await audit(env.DB,senderId,"access_key_created",created.expires_at);
+      await telegramSend(env,chatId,"🔑 Ключ доступа LUNIUM создан.\\n\\n"+created.key+"\\n\\nСрок действия: "+hours+" ч.\\nДействует до: "+created.expires_at+"\\n\\nОтправь ключ тому, кому разрешаешь вход. Не публикуй его в открытом чате.");
+    } else if(command==="/keys"){
+      const rows=await env.DB.prepare("SELECT created_at,expires_at,revoked_at,used_count,last_used_at FROM access_keys ORDER BY created_at DESC LIMIT 30").all();
+      const keys=rows.results||[];
+      await telegramSend(env,chatId,keys.length?"Последние ключи (сам ключ не хранится и повторно не показывается):\\n"+keys.map((k,i)=>(i+1)+". "+(k.revoked_at?"ОТОЗВАН":new Date(k.expires_at).getTime()<Date.now()?"ИСТЁК":"активен")+" · до "+k.expires_at+" · входов "+k.used_count).join("\\n"):"Ключей пока нет.");
+    } else {
+      const result=await env.DB.prepare("UPDATE access_keys SET revoked_at=? WHERE revoked_at IS NULL").bind(new Date().toISOString()).run();
+      await audit(env.DB,senderId,"access_keys_reset",String(result.meta?.changes||0));
+      await telegramSend(env,chatId,"♻️ Все ключи доступа отозваны. Сброс затронул "+String(result.meta?.changes||0)+" ключей. Для повторного входа создай новый: /key 24");
+    }
+    return json({ok:true});
+  }
+\n  if (command === "/groupid") {
     const type = message.chat.type;
     await telegramSend(env, chatId, type === "group" || type === "supergroup"
       ? "ID этой группы: " + String(chatId) + ". Передавай его только доверенным администраторам."
@@ -87,7 +121,19 @@ export default {async fetch(request,env){
   if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
   if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
   if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
-  if(!url.pathname.startsWith("/api/admin/"))return json({error:"Not found."},404);
+
+  if(url.pathname==="/api/access/validate"&&request.method==="POST"){
+    if(!env.DB)return json({error:"Сервис ключей не настроен."},503);
+    let b;try{b=await bodyJson(request)}catch(e){return json({error:"Некорректный запрос."},400)}
+    const key=typeof b.key==="string"?b.key.trim().toUpperCase():"";
+    if(!/^LUN-(?:[A-F0-9]{8}-){3}[A-F0-9]{8}$/.test(key))return json({valid:false,error:"Неверный формат ключа."},400);
+    const hash=await keyHash(key);
+    const row=await env.DB.prepare("SELECT key_hash,expires_at,revoked_at FROM access_keys WHERE key_hash=?").bind(hash).first();
+    if(!row||row.revoked_at||new Date(row.expires_at).getTime()<=Date.now())return json({valid:false,error:"Ключ недействителен, истёк или был сброшен."},403);
+    await env.DB.prepare("UPDATE access_keys SET used_count=used_count+1,last_used_at=? WHERE key_hash=?").bind(new Date().toISOString(),hash).run();
+    return json({valid:true,expires_at:row.expires_at});
+  }
+\n  if(!url.pathname.startsWith("/api/admin/"))return json({error:"Not found."},404);
   if(!["GET","POST","DELETE"].includes(request.method))return json({error:"Method not allowed."},405);
   const a=await auth(request,env);if(a.error)return a.error;
   const {user,role}=a,owner=role==="owner",db=env.DB;
@@ -104,7 +150,37 @@ export default {async fetch(request,env){
     if(typeof b.enabled!=="boolean")return json({error:"enabled должен быть true или false."},400);
     await setSetting(db,"bot_enabled",String(b.enabled));await audit(db,user.id,b.enabled?"bot_enabled":"bot_disabled");return json(await getStatus(db));
   }
-  if(url.pathname==="/api/admin/admins"&&request.method==="GET"){
+
+  if(url.pathname==="/api/admin/keys"&&request.method==="GET"){
+    if(!owner)return json({error:"Генератор ключей доступен только владельцу."},403);
+    const r=await db.prepare("SELECT key_hash,created_at,expires_at,revoked_at,used_count,last_used_at FROM access_keys ORDER BY created_at DESC LIMIT 100").all();
+    return json({keys:(r.results||[]).map(k=>({created_at:k.created_at,expires_at:k.expires_at,revoked_at:k.revoked_at,used_count:k.used_count,last_used_at:k.last_used_at,active:!k.revoked_at&&new Date(k.expires_at).getTime()>Date.now()}))});
+  }
+  if(url.pathname==="/api/admin/keys"&&request.method==="POST"){
+    if(!owner)return json({error:"Создавать ключи может только владелец."},403);
+    let b;try{b=await bodyJson(request)}catch(e){return json({error:"Некорректный запрос."},400)}
+    const hours=Number(b.hours);
+    if(!Number.isInteger(hours)||hours<1||hours>720)return json({error:"Срок ключа должен быть от 1 до 720 часов."},400);
+    const result=await createAccessKey(db,user.id,hours);await audit(db,user.id,"access_key_created",result.expires_at);
+    return json(result);
+  }
+  if(url.pathname==="/api/admin/keys/reset"&&request.method==="POST"){
+    if(!owner)return json({error:"Сбрасывать ключи может только владелец."},403);
+    const now=new Date().toISOString();
+    const result=await db.prepare("UPDATE access_keys SET revoked_at=? WHERE revoked_at IS NULL").bind(now).run();
+    await audit(db,user.id,"access_keys_reset",String(result.meta?.changes||0));
+    return json({ok:true,revoked:result.meta?.changes||0});
+  }
+  if(url.pathname==="/api/admin/keys/revoke"&&request.method==="POST"){
+    if(!owner)return json({error:"Отзывать ключи может только владелец."},403);
+    let b;try{b=await bodyJson(request)}catch(e){return json({error:"Некорректный запрос."},400)}
+    const hash=String(b.keyHash||"");
+    if(!/^[a-f0-9]{64}$/.test(hash))return json({error:"Некорректный ключ."},400);
+    await db.prepare("UPDATE access_keys SET revoked_at=? WHERE key_hash=? AND revoked_at IS NULL").bind(new Date().toISOString(),hash).run();
+    await audit(db,user.id,"access_key_revoked",hash.slice(0,12));
+    return json({ok:true});
+  }
+\n  if(url.pathname==="/api/admin/admins"&&request.method==="GET"){
     if(!owner)return json({error:"Список администраторов доступен только владельцу."},403);
     const r=await db.prepare("SELECT telegram_id,role,created_by,created_at FROM admins ORDER BY created_at DESC LIMIT 200").all();return json({admins:r.results||[]});
   }
