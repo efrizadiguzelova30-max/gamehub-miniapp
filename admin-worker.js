@@ -37,7 +37,7 @@ async function createAccessKey(db,actor,hours){
   await db.prepare("INSERT INTO access_keys(key_hash,created_by,created_at,expires_at,revoked_at,used_count,last_used_at) VALUES(?,?,?, ?,NULL,0,NULL)").bind(await keyHash(key),String(actor),createdAt,expiresAt).run();
   return {key,created_at:createdAt,expires_at:expiresAt,hours};
 }
-\nasync function audit(db,actor,action,target=""){await db.prepare("INSERT INTO audit_log(actor_telegram_id,action,target,created_at) VALUES(?,?,?,?)").bind(actor,action,String(target).slice(0,120),new Date().toISOString()).run()}
+async function audit(db,actor,action,target=""){await db.prepare("INSERT INTO audit_log(actor_telegram_id,action,target,created_at) VALUES(?,?,?,?)").bind(actor,action,String(target).slice(0,120),new Date().toISOString()).run()}
 async function getStatus(db){return{siteLocked:(await getSetting(db,"site_locked","false"))==="true",botEnabled:(await getSetting(db,"bot_enabled","true"))==="true"}}
 async function auth(request,env){
   if(!env.DB||!env.BOT_TOKEN||!env.OWNER_TELEGRAM_ID)return{error:json({error:"Admin API не настроен. Нужны D1 DB, BOT_TOKEN и OWNER_TELEGRAM_ID."},503)};
@@ -104,7 +104,7 @@ async function handleTelegramWebhook(request, env) {
     }
     return json({ok:true});
   }
-\n  if (command === "/groupid") {
+  if (command === "/groupid") {
     const type = message.chat.type;
     await telegramSend(env, chatId, type === "group" || type === "supergroup"
       ? "ID этой группы: " + String(chatId) + ". Передавай его только доверенным администраторам."
@@ -136,7 +136,7 @@ export default {async fetch(request,env){
     const result=await env.DB.prepare("UPDATE access_keys SET revoked_at=? WHERE revoked_at IS NULL").bind(now).run();
     return json({ok:true,revoked:result.meta?.changes||0});
   }
-\n\n  if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
+\n  if(request.headers.get("Origin")!==ALLOWED_ORIGIN)return json({error:"Origin not allowed."},403);
   if(request.method==="OPTIONS")return new Response(null,{status:204,headers:{"Access-Control-Allow-Origin":ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, DELETE, OPTIONS","Access-Control-Allow-Headers":"Content-Type, X-Telegram-Init-Data","Access-Control-Max-Age":"86400","Vary":"Origin"}});
   if(url.pathname==="/api/site-status"&&request.method==="GET")return env.DB?json({...await getStatus(env.DB),configured:true}):json({siteLocked:false,botEnabled:true,configured:false});
 
@@ -152,7 +152,7 @@ export default {async fetch(request,env){
     await env.DB.prepare("UPDATE access_keys SET used_count=used_count+1,last_used_at=? WHERE key_hash=?").bind(new Date().toISOString(),hash).run();
     return json({valid:true,expires_at:row.expires_at});
   }
-\n  if(!url.pathname.startsWith("/api/admin/"))return json({error:"Not found."},404);
+  if(!url.pathname.startsWith("/api/admin/"))return json({error:"Not found."},404);
   if(!["GET","POST","DELETE"].includes(request.method))return json({error:"Method not allowed."},405);
   const a=await auth(request,env);if(a.error)return a.error;
   const {user,role}=a,owner=role==="owner",db=env.DB;
@@ -199,7 +199,7 @@ export default {async fetch(request,env){
     await audit(db,user.id,"access_key_revoked",hash.slice(0,12));
     return json({ok:true});
   }
-\n  if(url.pathname==="/api/admin/admins"&&request.method==="GET"){
+  if(url.pathname==="/api/admin/admins"&&request.method==="GET"){
     if(!owner)return json({error:"Список администраторов доступен только владельцу."},403);
     const r=await db.prepare("SELECT telegram_id,role,created_by,created_at FROM admins ORDER BY created_at DESC LIMIT 200").all();return json({admins:r.results||[]});
   }
