@@ -473,19 +473,20 @@ $("#osintUserForm").addEventListener("submit", e => {
   async function start(){
     const AC=window.AudioContext||window.webkitAudioContext;
     if(!AC){if(typeof toast==="function")toast("Браузер не поддерживает воспроизведение звука.");return}
-    context=context&&!['closed'].includes(context.state)?context:new AC();
-    await context.resume();
+    context=context&&context.state!=="closed"?context:new AC();
+    if(context.state!=="running")await context.resume();
+    if(context.state!=="running")throw new Error("AudioContext не перешёл в running");
     master=context.createGain();master.gain.value=0.0001;master.connect(context.destination);
     const pad=context.createOscillator(),padGain=context.createGain();
-    pad.type="sine";pad.frequency.value=196;padGain.gain.value=0.055;pad.connect(padGain);padGain.connect(master);pad.start();
+    pad.type="sine";pad.frequency.value=196;padGain.gain.value=0.11;pad.connect(padGain);padGain.connect(master);pad.start();
     const harmony=context.createOscillator(),harmonyGain=context.createGain();
-    harmony.type="sine";harmony.frequency.value=246.94;harmonyGain.gain.value=0.028;harmony.connect(harmonyGain);harmonyGain.connect(master);harmony.start();
+    harmony.type="sine";harmony.frequency.value=246.94;harmonyGain.gain.value=0.055;harmony.connect(harmonyGain);harmonyGain.connect(master);harmony.start();
     notes.push({osc:pad,gain:padGain},{osc:harmony,gain:harmonyGain});
     const lead=context.createOscillator(),leadGain=context.createGain();
     lead.type="triangle";lead.frequency.value=melody[0];leadGain.gain.value=0.0001;lead.connect(leadGain);leadGain.connect(master);lead.start();
     notes.push({osc:lead,gain:leadGain});
-    master.gain.setTargetAtTime(0.42,context.currentTime,1.1);
-    leadGain.gain.setTargetAtTime(0.045,context.currentTime,1.2);
+    master.gain.setTargetAtTime(0.72,context.currentTime,0.7);
+    leadGain.gain.setTargetAtTime(0.075,context.currentTime,0.8);
     step=0;
     timer=setInterval(()=>{
       if(!playing||!context||context.state!=="running")return;
