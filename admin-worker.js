@@ -1,4 +1,6 @@
 const ALLOWED_ORIGIN = "https://efrizadiguzelova30-max.github.io";
+// Telegram ID is not a secret. Owner privileges are granted only after Telegram initData HMAC verification.
+const OWNER_ID = "7271410328";
 const MAX_AUTH_AGE_SECONDS = 3600;
 const MAX_BODY_BYTES = 10000;
 
@@ -40,10 +42,10 @@ async function createAccessKey(db,actor,hours){
 async function audit(db,actor,action,target=""){await db.prepare("INSERT INTO audit_log(actor_telegram_id,action,target,created_at) VALUES(?,?,?,?)").bind(actor,action,String(target).slice(0,120),new Date().toISOString()).run()}
 async function getStatus(db){return{siteLocked:(await getSetting(db,"site_locked","false"))==="true",botEnabled:(await getSetting(db,"bot_enabled","true"))==="true"}}
 async function auth(request,env){
-  if(!env.DB||!env.BOT_TOKEN||!env.OWNER_TELEGRAM_ID)return{error:json({error:"Admin API не настроен. Нужны D1 DB, BOT_TOKEN и OWNER_TELEGRAM_ID."},503)};
+  if(!env.DB||!env.BOT_TOKEN)return{error:json({error:"Admin API не настроен. Нужны D1 DB и BOT_TOKEN."},503)};
   const user=await verifyInitData(request.headers.get("X-Telegram-Init-Data")||"",env.BOT_TOKEN);
   if(!user)return{error:json({error:"Сессия Telegram недействительна или устарела."},401)};
-  if(user.id===String(env.OWNER_TELEGRAM_ID))return{user,role:"owner"};
+  if(user.id===String(env.OWNER_TELEGRAM_ID || OWNER_ID))return{user,role:"owner"};
   const row=await env.DB.prepare("SELECT role FROM admins WHERE telegram_id=?").bind(user.id).first();
   if(!row||!["admin","co_owner"].includes(row.role))return{error:json({error:"Нет прав доступа."},403)};
   return{user,role:row.role};
@@ -243,7 +245,7 @@ export default {async fetch(request,env){
     let b;try{b=await bodyJson(request)}catch(e){return json({error:e.message==="TOO_LARGE"?"Слишком большой запрос.":"Некорректный JSON."},e.message==="TOO_LARGE"?413:400)}
     const chatId=String(b.chatId||"").trim(),userId=String(b.userId||"").trim(),action=b.action;
     if(!/^-?\d{1,20}$/.test(chatId)||!/^\d{1,20}$/.test(userId)||!Number.isSafeInteger(Number(chatId))||!Number.isSafeInteger(Number(userId))||!["ban","unban","mute","unmute"].includes(action))return json({error:"Проверь ID группы, ID пользователя и действие."},400);
-    if(env.OWNER_TELEGRAM_ID&&userId===String(env.OWNER_TELEGRAM_ID))return json({error:"Действие над владельцем GameHub запрещено."},403);
+    if(userId===String(env.OWNER_TELEGRAM_ID || OWNER_ID))return json({error:"Действие над владельцем GameHub запрещено."},403);
     const group=await db.prepare("SELECT chat_id FROM managed_groups WHERE chat_id=?").bind(chatId).first();
     if(!group)return json({error:"Эта группа не зарегистрирована в GameHub."},404);
     if(!env.BOT_TOKEN)return json({error:"BOT_TOKEN не настроен."},503);
