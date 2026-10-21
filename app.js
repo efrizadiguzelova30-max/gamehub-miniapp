@@ -11,7 +11,16 @@ const quests=[{id:"q1",title:"Изучи новую механику",desc:"Вы
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 // Public Telegram numeric ID is used only to reveal the owner UI; every privileged API action must still be verified by admin-worker.js.
 const OWNER_TELEGRAM_ID = "7271410328";
-function getTelegramUser(){return window.Telegram?.WebApp?.initDataUnsafe?.user||null}
+function getTelegramUser(){
+  const tg=window.Telegram?.WebApp;
+  if(tg?.initDataUnsafe?.user)return tg.initDataUnsafe.user;
+  // Some Telegram WebView versions expose signed initData before initDataUnsafe is populated.
+  try{
+    const raw=tg?.initData;
+    if(raw){const encoded=new URLSearchParams(raw).get("user");if(encoded){const user=JSON.parse(encoded);if(user&&user.id!=null)return user}}
+  }catch(_){}
+  return null;
+}
 function isTelegramOwner(){const u=getTelegramUser();return !!u&&String(u.id)===OWNER_TELEGRAM_ID}
 let state={points:0,done:[]},filter="Все",lastLookup=0,lookupTimes=[],chatTimes=[],lastRandomGame="";
 try{const stored=JSON.parse(localStorage.getItem("gamehub-demo")||"{}");if(stored&&typeof stored==="object"){state.done=Array.isArray(stored.done)?[...new Set(stored.done.filter(id=>quests.some(q=>q.id===id)))]:[];state.points=state.done.reduce((sum,id)=>sum+(quests.find(q=>q.id===id)?.reward||0),0)}}catch(e){state={points:0,done:[]}}
@@ -23,7 +32,7 @@ function qCard(q){const done=state.done.includes(q.id);return `<article class="q
 function renderQuests(){$("#allQuests").innerHTML=quests.map(qCard).join("");$("#homeQuests").innerHTML=quests.slice(0,2).map(qCard).join("")}
 function toast(s){const t=$("#toast");t.textContent=s;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),2400)}
 function openGame(id){const g=games.find(x=>x.id===id);if(!g)return;$("#dialogContent").innerHTML=`<div class="cover" style="background:${g.color};width:68px;height:68px">${g.emoji}</div><p class="tag">${g.cat}</p><h2>${g.name}</h2><p class="subtle-note">${g.desc}</p><div class="tip"><b>💡 Совет</b><br>${g.tip}</div><button class="btn primary full-button" id="saveTip">Запомнил совет</button>`;$("#gameDialog").showModal();$("#saveTip").onclick=()=>{toast("Отлично! Совет изучен");$("#gameDialog").close()}}
-function tab(n){const target=$("#view-"+n);if(!target)return;$$("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===n));$$(".view").forEach(v=>v.classList.toggle("active",v===target));if(n==="games")renderGames();if(n==="graph"){const p=$("#graphPoints");if(p)p.textContent=String(state.points);const q=$("#graphTasks");if(q)q.textContent=state.done.length+"/3"}if(n==="profile"){const u=window.Telegram?.WebApp?.initDataUnsafe?.user;if(u){const p=$("#profileName");if(p)p.textContent=[u.first_name,u.last_name].filter(Boolean).join(" ")||u.username||"Пользователь";const s=$("#profileStatus");if(s)s.textContent="Telegram-профиль обнаружен. Права доступа подтверждаются только сервером.";const r=$("#profileRole");if(r)r.textContent=adminActor?.role==="owner"?"Роль: владелец":adminActor?.role==="co_owner"?"Роль: совладелец":adminActor?.role==="admin"?"Роль: администратор":adminConfigured?"Роль: проверка сервером не завершена":"Роль: сервер авторизации не подключён"}}const d=$("#sideDrawer"),s=$("#drawerScrim");d?.classList.remove("open");s?.classList.remove("open");window.scrollTo({top:0,behavior:"smooth"})}
+function tab(n){const target=$("#view-"+n);if(!target)return;$$("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===n));$$(".view").forEach(v=>v.classList.toggle("active",v===target));if(n==="games")renderGames();if(n==="graph"){const p=$("#graphPoints");if(p)p.textContent=String(state.points);const q=$("#graphTasks");if(q)q.textContent=state.done.length+"/3"}if(n==="profile"){const u=getTelegramUser();if(u){const p=$("#profileName");if(p)p.textContent=[u.first_name,u.last_name].filter(Boolean).join(" ")||u.username||"Пользователь";const s=$("#profileStatus");if(s)s.textContent=isTelegramOwner()?"Владелец распознан по Telegram ID. Для защищённых команд всё ещё нужна серверная проверка.":"Telegram-профиль обнаружен. Права администратора подтверждаются сервером.";const r=$("#profileRole");if(r)r.textContent=adminActor?.role==="owner"||isTelegramOwner()?"Роль: владелец":adminActor?.role==="co_owner"?"Роль: совладелец":adminActor?.role==="admin"?"Роль: администратор":adminConfigured?"Роль: проверка сервером не завершена":"Роль: сервер авторизации не подключён"}}const d=$("#sideDrawer"),s=$("#drawerScrim");d?.classList.remove("open");s?.classList.remove("open");window.scrollTo({top:0,behavior:"smooth"})}
 const menuToggle=$("#menuToggle"),sideDrawer=$("#sideDrawer"),drawerScrim=$("#drawerScrim");function closeDrawer(){sideDrawer?.classList.remove("open");drawerScrim?.classList.remove("open")}menuToggle?.addEventListener("click",()=>{sideDrawer?.classList.add("open");drawerScrim?.classList.add("open")});$("#sideClose")?.addEventListener("click",closeDrawer);drawerScrim?.addEventListener("click",closeDrawer);$("#settingsReset")?.addEventListener("click",()=>{state={points:0,done:[]};save();toast("Прогресс сброшен")});$("#themeToggle")?.addEventListener("click",()=>{document.body.classList.toggle("bright-accent");toast("Оформление обновлено")});$("#lockAccessButton")?.addEventListener("click",()=>{tab("admin");if(!adminActor||adminActor.role!=="owner")toast("Открыта справочная страница доступа. Изменять блокировку может только подтверждённый владелец.")});
 document.addEventListener("click",e=>{const t=e.target.closest("[data-tab]");if(t){tab(t.dataset.tab);return}const go=e.target.closest("[data-goto]");if(go){tab(go.dataset.goto);return}const g=e.target.closest("[data-game]");if(g){openGame(g.dataset.game);return}if(e.target.closest("[data-random-game]")){const options=games.filter(x=>x.id!==lastRandomGame);const pick=options[Math.floor(Math.random()*options.length)]||games[0];lastRandomGame=pick.id;openGame(pick.id);return}const q=e.target.closest("[data-quest]");if(q){const item=quests.find(x=>x.id===q.dataset.quest);if(!item)return;if(state.done.includes(item.id)){state.done=state.done.filter(x=>x!==item.id);state.points=Math.max(0,state.points-item.reward);toast("Задание отменено")}else{state.done.push(item.id);state.points+=item.reward;toast("+"+item.reward+" очков!")}save();return}const f=e.target.closest("[data-filter]");if(f){filter=f.dataset.filter;$$("[data-filter]").forEach(b=>b.classList.toggle("selected",b===f));renderGames();return}const prompt=e.target.closest("[data-prompt]");if(prompt){$("#chatInput").value=prompt.dataset.prompt;$("#chatInput").focus()}});
 $("#searchInput")?.addEventListener("input",renderGames);$("#closeDialog").onclick=()=>$("#gameDialog").close();$("#resetButton").onclick=()=>{state={points:0,done:[]};save();toast("Демо-прогресс сброшен")};
@@ -478,20 +487,26 @@ $("#osintUserForm").addEventListener("submit", e => {
     if(context.state!=="running")throw new Error("AudioContext не перешёл в running");
     master=context.createGain();master.gain.value=0.0001;master.connect(context.destination);
     const pad=context.createOscillator(),padGain=context.createGain();
-    pad.type="sine";pad.frequency.value=196;padGain.gain.value=0.11;pad.connect(padGain);padGain.connect(master);pad.start();
+    pad.type="sine";pad.frequency.value=196;padGain.gain.value=0.045;pad.connect(padGain);padGain.connect(master);pad.start();
     const harmony=context.createOscillator(),harmonyGain=context.createGain();
-    harmony.type="sine";harmony.frequency.value=246.94;harmonyGain.gain.value=0.055;harmony.connect(harmonyGain);harmonyGain.connect(master);harmony.start();
+    harmony.type="sine";harmony.frequency.value=246.94;harmonyGain.gain.value=0.025;harmony.connect(harmonyGain);harmonyGain.connect(master);harmony.start();
     notes.push({osc:pad,gain:padGain},{osc:harmony,gain:harmonyGain});
     const lead=context.createOscillator(),leadGain=context.createGain();
     lead.type="triangle";lead.frequency.value=melody[0];leadGain.gain.value=0.0001;lead.connect(leadGain);leadGain.connect(master);lead.start();
     notes.push({osc:lead,gain:leadGain});
-    master.gain.setTargetAtTime(0.72,context.currentTime,0.7);
-    leadGain.gain.setTargetAtTime(0.075,context.currentTime,0.8);
+    master.gain.setTargetAtTime(0.88,context.currentTime,0.35);
+    leadGain.gain.setValueAtTime(0.0001,context.currentTime);
+    leadGain.gain.exponentialRampToValueAtTime(0.16,context.currentTime+0.08);
+    leadGain.gain.exponentialRampToValueAtTime(0.0001,context.currentTime+0.58);
     step=0;
     timer=setInterval(()=>{
       if(!playing||!context||context.state!=="running")return;
       step=(step+1)%melody.length;
-      lead.frequency.setTargetAtTime(melody[step],context.currentTime,0.16);
+      lead.frequency.setTargetAtTime(melody[step],context.currentTime,0.04);
+      leadGain.gain.cancelScheduledValues(context.currentTime);
+      leadGain.gain.setValueAtTime(0.0001,context.currentTime);
+      leadGain.gain.exponentialRampToValueAtTime(0.16,context.currentTime+0.06);
+      leadGain.gain.exponentialRampToValueAtTime(0.0001,context.currentTime+0.54);
       if(step%4===0)pad.frequency.setTargetAtTime([196,174.61,146.83,164.81][Math.floor(step/4)],context.currentTime,0.8);
       if(step%4===0)harmony.frequency.setTargetAtTime([246.94,220,196,207.65][Math.floor(step/4)],context.currentTime,0.8);
     },720);
