@@ -82,6 +82,8 @@ $("#chatForm").addEventListener("submit", async e => {
 const ADMIN_API_ENDPOINT = "PASTE_CLOUDFLARE_ADMIN_WORKER_URL_HERE";
 const adminConfigured = /^https:\/\//.test(ADMIN_API_ENDPOINT) && !ADMIN_API_ENDPOINT.includes("PASTE_");
 const adminNav = $("#adminNav");
+// Hide privileged navigation by default; it is revealed only after the server verifies Telegram initData and the assigned role.
+if (adminNav) adminNav.hidden = true;
 const maintenanceBanner = $("#maintenanceBanner");
 let adminActor = null;
 if (!adminConfigured) {
