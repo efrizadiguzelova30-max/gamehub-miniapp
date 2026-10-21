@@ -21,8 +21,8 @@ for (const target of [...html.matchAll(/\bdata-goto=["']([^"']+)["']/g)].map(mat
   check(views.has(target), 'Navigation target "' + target + '" has no matching #view-' + target + ".");
 }
 check(tabs.length > 0, "No navigation tabs were found.");
-check(/<link\b[^>]*href=["']style\.css["']/i.test(html), "index.html does not link style.css.");
-check(/<script\b[^>]*src=["']app\.js["']/i.test(html), "index.html does not load app.js.");
+check(/<link\b[^>]*href=["']style\.css(?:\?[^"']*)?["']/i.test(html), "index.html does not link style.css.");
+check(/<script\b[^>]*src=["']app\.js(?:\?[^"']*)?["']/i.test(html), "index.html does not load app.js.");
 check(/@media\s*\(prefers-reduced-motion:\s*reduce\)/.test(css), "Missing reduced-motion accessibility styles.");
 check(/:focus-visible/.test(css), "Missing visible keyboard-focus styles.");
 check(/textContent\s*=\s*String\(data\.reply/.test(js), "AI reply should be rendered as text, not HTML.");
