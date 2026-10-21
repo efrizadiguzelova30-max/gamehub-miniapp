@@ -8,7 +8,11 @@ const games=[
 {id:"genshin",name:"Genshin Impact",cat:"Ролевые",emoji:"🌌",color:"linear-gradient(135deg,#6c8ed2,#393b79)",desc:"Приключения, исследование и отряд персонажей.",tip:"Подбирай персонажей с дополняющими навыками и улучшай оружие основного героя."}
 ];
 const quests=[{id:"q1",title:"Изучи новую механику",desc:"Выбери игру и попробуй то, чего раньше не делал.",reward:20},{id:"q2",title:"Прочитай игровой совет",desc:"Открой карточку игры и ознакомься с рекомендацией.",reward:15},{id:"q3",title:"Составь план на матч",desc:"Определи цель и способ улучшить результат.",reward:25}];
-const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const $=s=>document.querySelector(s),$=s=>[...document.querySelectorAll(s)];
+// Public Telegram numeric ID is used only to reveal the owner UI; every privileged API action must still be verified by admin-worker.js.
+const OWNER_TELEGRAM_ID = "7271410328";
+function getTelegramUser(){return window.Telegram?.WebApp?.initDataUnsafe?.user||null}
+function isTelegramOwner(){const u=getTelegramUser();return !!u&&String(u.id)===OWNER_TELEGRAM_ID}
 let state={points:0,done:[]},filter="Все",lastLookup=0,lookupTimes=[],chatTimes=[],lastRandomGame="";
 try{const stored=JSON.parse(localStorage.getItem("gamehub-demo")||"{}");if(stored&&typeof stored==="object"){state.done=Array.isArray(stored.done)?[...new Set(stored.done.filter(id=>quests.some(q=>q.id===id)))]:[];state.points=state.done.reduce((sum,id)=>sum+(quests.find(q=>q.id===id)?.reward||0),0)}}catch(e){state={points:0,done:[]}}
 function save(){try{localStorage.setItem("gamehub-demo",JSON.stringify(state))}catch(e){}stats();renderQuests()}
@@ -23,7 +27,7 @@ function tab(n){const target=$("#view-"+n);if(!target)return;$$("[data-tab]").fo
 const menuToggle=$("#menuToggle"),sideDrawer=$("#sideDrawer"),drawerScrim=$("#drawerScrim");function closeDrawer(){sideDrawer?.classList.remove("open");drawerScrim?.classList.remove("open")}menuToggle?.addEventListener("click",()=>{sideDrawer?.classList.add("open");drawerScrim?.classList.add("open")});$("#sideClose")?.addEventListener("click",closeDrawer);drawerScrim?.addEventListener("click",closeDrawer);$("#settingsReset")?.addEventListener("click",()=>{state={points:0,done:[]};save();toast("Прогресс сброшен")});$("#themeToggle")?.addEventListener("click",()=>{document.body.classList.toggle("bright-accent");toast("Оформление обновлено")});$("#lockAccessButton")?.addEventListener("click",()=>{tab("admin");if(!adminActor||adminActor.role!=="owner")toast("Открыта справочная страница доступа. Изменять блокировку может только подтверждённый владелец.")});
 document.addEventListener("click",e=>{const t=e.target.closest("[data-tab]");if(t){tab(t.dataset.tab);return}const go=e.target.closest("[data-goto]");if(go){tab(go.dataset.goto);return}const g=e.target.closest("[data-game]");if(g){openGame(g.dataset.game);return}if(e.target.closest("[data-random-game]")){const options=games.filter(x=>x.id!==lastRandomGame);const pick=options[Math.floor(Math.random()*options.length)]||games[0];lastRandomGame=pick.id;openGame(pick.id);return}const q=e.target.closest("[data-quest]");if(q){const item=quests.find(x=>x.id===q.dataset.quest);if(!item)return;if(state.done.includes(item.id)){state.done=state.done.filter(x=>x!==item.id);state.points=Math.max(0,state.points-item.reward);toast("Задание отменено")}else{state.done.push(item.id);state.points+=item.reward;toast("+"+item.reward+" очков!")}save();return}const f=e.target.closest("[data-filter]");if(f){filter=f.dataset.filter;$$("[data-filter]").forEach(b=>b.classList.toggle("selected",b===f));renderGames();return}const prompt=e.target.closest("[data-prompt]");if(prompt){$("#chatInput").value=prompt.dataset.prompt;$("#chatInput").focus()}});
 $("#searchInput")?.addEventListener("input",renderGames);$("#closeDialog").onclick=()=>$("#gameDialog").close();$("#resetButton").onclick=()=>{state={points:0,done:[]};save();toast("Демо-прогресс сброшен")};
-if(window.Telegram&&window.Telegram.WebApp){const tg=window.Telegram.WebApp;tg.ready();tg.expand();const u=tg.initDataUnsafe?.user;if(u)$("#avatar").textContent=(u.first_name||"G").slice(0,2).toUpperCase()}
+if(window.Telegram&&window.Telegram.WebApp){const tg=window.Telegram.WebApp;tg.ready();tg.expand();const u=tg.initDataUnsafe?.user;if(u)$("#avatar").textContent=(u.first_name||"G").slice(0,2).toUpperCase();if(isTelegramOwner()){const nav=$("#sideAdminNav");if(nav)nav.hidden=false;const identity=$("#adminIdentity");if(identity)identity.textContent="Владелец подтверждён по Telegram ID. Подключаем функции управления…";const unavailable=$("#adminUnavailable");if(unavailable)unavailable.hidden=false;const msg=$("#adminUnavailableText");if(msg)msg.textContent="Telegram распознал владельца. Для команд, ключей и управления группами требуется подключённый Admin Worker; интерфейс не просит у владельца ключ доступа."}}
 $("#featuredGames").innerHTML=games.slice(0,4).map(gameCard).join("");renderGames();renderQuests();stats();
 // Public Roblox username lookup. Client-side throttling is only a basic UX safeguard, not server-side anti-abuse protection.
 function allowedLookup(){const now=Date.now();lookupTimes=lookupTimes.filter(t=>now-t<60000);if(now-lastLookup<2500){toast("Подожди пару секунд перед следующим поиском.");return false}if(lookupTimes.length>=5){toast("Лимит: не больше 5 поисков в минуту.");return false}lastLookup=now;lookupTimes.push(now);return true}
@@ -227,7 +231,18 @@ async function loadGroupList() {
 }
 
 async function loadAdminPanel() {
-  if (!adminConfigured) return;
+  if (!adminConfigured) {
+    if(isTelegramOwner()){
+      const nav=$("#sideAdminNav");if(nav)nav.hidden=false;
+      const identity=$("#adminIdentity");if(identity)identity.textContent="Владелец GameHub · Telegram ID "+OWNER_TELEGRAM_ID;
+      const unavailable=$("#adminUnavailable");if(unavailable)unavailable.hidden=false;
+      const unavailableText=$("#adminUnavailableText");if(unavailableText)unavailableText.textContent="Владелец распознан автоматически. Но команды управления, список ключей и действия бота не могут выполняться, пока ADMIN_API_ENDPOINT не указывает на развернутый Admin Worker.";
+      const ownerControls=$("#ownerControls");if(ownerControls)ownerControls.hidden=false;
+      const groupControls=$("#groupControls");if(groupControls)groupControls.hidden=false;
+      const groupAddForm=$("#groupAddForm");if(groupAddForm)groupAddForm.hidden=false;
+    }
+    return;
+  }
   const tg = window.Telegram && window.Telegram.WebApp;
   if (!tg || !tg.initData) return;
   try {
