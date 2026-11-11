@@ -16,6 +16,9 @@ jobs:
           unzip -t Tengu_AI_8_1_Alpha2_Android_Source.zip
           unzip -q Tengu_AI_8_1_Alpha2_Android_Source.zip
           test -f Tengu_Android/app/src/main/AndroidManifest.xml
+          # The bundled wrapper JAR is custom; Gradle is installed by setup-gradle below.
+          # Remove only the wrapper JAR from the ephemeral runner before validation.
+          rm -f Tengu_Android/gradle/wrapper/gradle-wrapper.jar
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
