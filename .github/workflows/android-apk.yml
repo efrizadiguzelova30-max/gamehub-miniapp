@@ -65,62 +65,39 @@ jobs:
       - name: Fetch pinned llama.cpp source
         working-directory: Tengu_Android
         run: bash tools/get_llama_cpp.sh
-      - name: Download and verify bundled Tengu AI text and photo models
+      - name: Download and SHA256-verify Tengu AI text and photo models
         working-directory: Tengu_Android
         run: |
           set -euo pipefail
           mkdir -p app/src/main/assets/models
+          curl --fail --location --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 3600 \
+            'https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen_Qwen3-4B-Instruct-2507-IQ3_M.gguf' \
+            -o app/src/main/assets/models/tengu-model.gguf
+          echo 'b458203e8ad6d3f9b82c1190cbd77e8502f4f763985cefdbe85ed18947fcac9d  app/src/main/assets/models/tengu-model.gguf' | sha256sum -c -
+          curl --fail --location --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 900 \
+            'https://huggingface.co/qualcomm/Real-ESRGAN-x4plus/resolve/e802f7d60f80be9abb948cbd987571eaf8d0fe1c/Real-ESRGAN-x4plus_float.tflite' \
+            -o app/src/main/assets/models/tengu-superres.tflite
+          echo '439ffbfd12638800f0f1e11054d3a4adc38bec757933bac89bb5f0648bb52dd1  app/src/main/assets/models/tengu-superres.tflite' | sha256sum -c -
           python3 - <<'PY'
-          import hashlib, json, pathlib, subprocess, urllib.request
-          specs=[
-            ('bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF',
-             'Qwen3-4B-Instruct-2507-IQ3_M.gguf',
-             pathlib.Path('app/src/main/assets/models/tengu-model.gguf'),
-             1_800_000_000, 2_100_000_000),
-            ('qualcomm/Real-ESRGAN-x4plus',
-             'Real-ESRGAN-x4plus_float.tflite',
-             pathlib.Path('app/src/main/assets/models/tengu-superres.tflite'),
-             60_000_000, 80_000_000)
-          ]
-          modelinfo={}
-          for repo,name,dest,low,high in specs:
-              api='https://huggingface.co/api/models/'+repo+'/tree/main?recursive=true'
-              with urllib.request.urlopen(api, timeout=90) as response:
-                  entries=json.load(response)
-              entry=next((x for x in entries if x.get('path')==name),None)
-              if not entry:
-                  raise RuntimeError('Model not found in manifest: '+name)
-              lfs=entry.get('lfs') or {}
-              expected=lfs.get('sha256') or lfs.get('oid')
-              expected_size=int(entry.get('size') or lfs.get('size') or 0)
-              if not expected or len(expected)!=64 or not (low<=expected_size<=high):
-                  raise RuntimeError('Missing or unexpected model digest/size: '+name+' '+str(expected_size))
-              url='https://huggingface.co/'+repo+'/resolve/main/'+name
-              subprocess.run(['curl','--fail','--location','--retry','6','--retry-all-errors','--retry-delay','5',
-                              '--connect-timeout','30','--max-time','3600',url,'-o',str(dest)],check=True)
-              actual_size=dest.stat().st_size
-              digest=hashlib.sha256()
-              with dest.open('rb') as stream:
-                  for part in iter(lambda:stream.read(8*1024*1024),b''):
-                      digest.update(part)
-              actual=digest.hexdigest()
-              if actual!=expected or actual_size!=expected_size:
-                  raise RuntimeError('Invalid model SHA256 or size: '+name)
-              modelinfo[name]=(actual_size,actual,url)
-              print('Verified',name,actual_size,actual,flush=True)
-          size,sha,url=modelinfo['Qwen3-4B-Instruct-2507-IQ3_M.gguf']
-          java=pathlib.Path('app/src/main/java/app/tengu/assistant/TenguBundledModel.java')
+          from pathlib import Path
+          p=Path('app/src/main/assets/models/tengu-model.gguf')
+          s=p.stat().st_size
+          assert 1_800_000_000 < s < 2_100_000_000, 'Unexpected GGUF size'
+          t=Path('app/src/main/assets/models/tengu-superres.tflite')
+          assert 60_000_000 < t.stat().st_size < 80_000_000, 'Unexpected photo model size'
+          java=Path('app/src/main/java/app/tengu/assistant/TenguBundledModel.java')
           java.write_text('package app.tengu.assistant;\n'
-             'final class TenguBundledModel {\n'
-             '    static final long SIZE = '+str(size)+'L;\n'
-             '    static final String SHA256 = "'+sha+'";\n'
-             '    static final String URL = "'+url+'";\n'
-             '    private TenguBundledModel() {}\n'
-             '}\n',encoding='utf-8')
+              'final class TenguBundledModel {\n'
+              '    static final long SIZE = '+str(s)+'L;\n'
+              '    static final String SHA256 = "b458203e8ad6d3f9b82c1190cbd77e8502f4f763985cefdbe85ed18947fcac9d";\n'
+              '    static final String URL = "https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen_Qwen3-4B-Instruct-2507-IQ3_M.gguf";\n'
+              '    private TenguBundledModel() {}\n'
+              '}\n',encoding='utf-8')
+          print('Verified both models, sizes:',s,t.stat().st_size)
           PY
           curl -fLsS --retry 3 'https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/resolve/main/LICENSE' -o app/src/main/assets/TENGU_MODEL_LICENSE.txt
-          curl -fLsS --retry 3 'https://huggingface.co/qualcomm/Real-ESRGAN-x4plus/resolve/main/LICENSE' -o app/src/main/assets/TENGU_PHOTO_MODEL_LICENSE.txt
-          printf '%s\n' 'Tengu AI ships third-party Qwen3-4B-Instruct-2507 (IQ3_M GGUF) and Real-ESRGAN-x4plus TFLite. Local inference and enhancement stay on device unless you explicitly use a third-party online feature.' > app/src/main/assets/TENGU_MODEL_NOTICE.txt
+          curl -fLsS --retry 3 'https://huggingface.co/qualcomm/Real-ESRGAN-x4plus/resolve/e802f7d60f80be9abb948cbd987571eaf8d0fe1c/LICENSE' -o app/src/main/assets/TENGU_PHOTO_MODEL_LICENSE.txt
+          printf '%s\n' 'Tengu AI ships third-party Qwen3-4B-Instruct-2507 (IQ3_M GGUF) and Real-ESRGAN-x4plus TFLite. Both models are SHA256-verified. Local inference and enhancement stay on device unless an optional third-party online feature is used.' > app/src/main/assets/TENGU_MODEL_NOTICE.txt
       - name: Validate TFLite photo model interface
         working-directory: Tengu_Android
         run: |
