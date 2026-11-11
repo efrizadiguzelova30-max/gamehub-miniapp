@@ -1,4 +1,4 @@
-name: Tengu AI 8.4 — Android APK
+name: Tengu AI 8.5 — Android APK
 on:
   workflow_dispatch:
   push:
@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Checkout Tengu AI sources
         uses: actions/checkout@v4
-      - name: Assemble Tengu AI 8.4 source tree
+      - name: Assemble Tengu AI 8.5 source tree
         run: |
           set -euo pipefail
           unzip -t Tengu_AI_8_1_Alpha2_Android_Source.zip >/dev/null
@@ -25,6 +25,9 @@ jobs:
           base64 -d Tengu_AI_8_4_update.base64.txt > /tmp/tengu84.zip
           unzip -t /tmp/tengu84.zip >/dev/null
           unzip -q -o /tmp/tengu84.zip
+          base64 -d Tengu_AI_8_5_patch.base64.txt > /tmp/tengu85.zip
+          unzip -t /tmp/tengu85.zip >/dev/null
+          unzip -q -o /tmp/tengu85.zip
           test -s Tengu_Android/app/src/main/res/raw/tengu_theme.ogg
           test -f Tengu_Android/app/src/main/AndroidManifest.xml
           cd Tengu_Android
@@ -35,6 +38,7 @@ jobs:
           node tests/evolution_access.test.cjs
           node tests/branding_bundle.test.cjs
           node tests/upgrade84.test.cjs
+          node tests/upgrade85.test.cjs
           rm -f gradle/wrapper/gradle-wrapper.jar
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -61,38 +65,82 @@ jobs:
       - name: Fetch pinned llama.cpp source
         working-directory: Tengu_Android
         run: bash tools/get_llama_cpp.sh
-      - name: Download and SHA256-verify bundled Qwen3-1.7B GGUF
+      - name: Download and verify bundled Tengu AI text and photo models
         working-directory: Tengu_Android
         run: |
           set -euo pipefail
           mkdir -p app/src/main/assets/models
-          curl --fail --location --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 3000 \
-            'https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/main/Qwen_Qwen3-1.7B-IQ3_XXS.gguf' \
-            -o app/src/main/assets/models/tengu-model.gguf
+          python3 - <<'PY'
+          import hashlib, json, pathlib, subprocess, urllib.request
+          specs=[
+            ('bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF',
+             'Qwen3-4B-Instruct-2507-IQ3_M.gguf',
+             pathlib.Path('app/src/main/assets/models/tengu-model.gguf'),
+             1_800_000_000, 2_100_000_000),
+            ('qualcomm/Real-ESRGAN-x4plus',
+             'Real-ESRGAN-x4plus_float.tflite',
+             pathlib.Path('app/src/main/assets/models/tengu-superres.tflite'),
+             60_000_000, 80_000_000)
+          ]
+          modelinfo={}
+          for repo,name,dest,low,high in specs:
+              api='https://huggingface.co/api/models/'+repo+'/tree/main?recursive=true'
+              with urllib.request.urlopen(api, timeout=90) as response:
+                  entries=json.load(response)
+              entry=next((x for x in entries if x.get('path')==name),None)
+              if not entry:
+                  raise RuntimeError('Model not found in manifest: '+name)
+              lfs=entry.get('lfs') or {}
+              expected=lfs.get('sha256') or lfs.get('oid')
+              expected_size=int(entry.get('size') or lfs.get('size') or 0)
+              if not expected or len(expected)!=64 or not (low<=expected_size<=high):
+                  raise RuntimeError('Missing or unexpected model digest/size: '+name+' '+str(expected_size))
+              url='https://huggingface.co/'+repo+'/resolve/main/'+name
+              subprocess.run(['curl','--fail','--location','--retry','6','--retry-all-errors','--retry-delay','5',
+                              '--connect-timeout','30','--max-time','3600',url,'-o',str(dest)],check=True)
+              actual_size=dest.stat().st_size
+              digest=hashlib.sha256()
+              with dest.open('rb') as stream:
+                  for part in iter(lambda:stream.read(8*1024*1024),b''):
+                      digest.update(part)
+              actual=digest.hexdigest()
+              if actual!=expected or actual_size!=expected_size:
+                  raise RuntimeError('Invalid model SHA256 or size: '+name)
+              modelinfo[name]=(actual_size,actual,url)
+              print('Verified',name,actual_size,actual,flush=True)
+          size,sha,url=modelinfo['Qwen3-4B-Instruct-2507-IQ3_M.gguf']
+          java=pathlib.Path('app/src/main/java/app/tengu/assistant/TenguBundledModel.java')
+          java.write_text('package app.tengu.assistant;\n'
+             'final class TenguBundledModel {\n'
+             '    static final long SIZE = '+str(size)+'L;\n'
+             '    static final String SHA256 = "'+sha+'";\n'
+             '    static final String URL = "'+url+'";\n'
+             '    private TenguBundledModel() {}\n'
+             '}\n',encoding='utf-8')
+          PY
+          curl -fLsS --retry 3 'https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/resolve/main/LICENSE' -o app/src/main/assets/TENGU_MODEL_LICENSE.txt
+          curl -fLsS --retry 3 'https://huggingface.co/qualcomm/Real-ESRGAN-x4plus/resolve/main/LICENSE' -o app/src/main/assets/TENGU_PHOTO_MODEL_LICENSE.txt
+          printf '%s\n' 'Tengu AI ships third-party Qwen3-4B-Instruct-2507 (IQ3_M GGUF) and Real-ESRGAN-x4plus TFLite. Local inference and enhancement stay on device unless you explicitly use a third-party online feature.' > app/src/main/assets/TENGU_MODEL_NOTICE.txt
+      - name: Validate TFLite photo model interface
+        working-directory: Tengu_Android
+        run: |
+          python3 -m pip install --user 'tflite>=2.10,<3' flatbuffers
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib
-          p=Path('app/src/main/assets/models/tengu-model.gguf')
-          size=p.stat().st_size
-          expected='5c7649660c508f31f522ac7fa9e70fa03f989250ce9884cc3747f0e6c7443fbe'
-          actual=hashlib.sha256(p.read_bytes()).hexdigest()
-          assert actual==expected, 'Model SHA256 does not match the published Hugging Face digest'
-          assert 800_000_000 < size < 970_000_000, 'Model outside APK size limit'
-          url='https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/main/Qwen_Qwen3-1.7B-IQ3_XXS.gguf'
-          j=Path('app/src/main/java/app/tengu/assistant/TenguBundledModel.java')
-          j.write_text('package app.tengu.assistant;\n'
-                       'final class TenguBundledModel {\n'
-                       '    static final long SIZE = '+str(size)+'L;\n'
-                       '    static final String SHA256 = "'+expected+'";\n'
-                       '    static final String URL = "'+url+'";\n'
-                       '    private TenguBundledModel() {}\n'
-                       '}\n',encoding='utf-8')
-          print('Tengu AI Qwen3 model verified SHA256, bytes:',size)
+          import tflite
+          p=Path('app/src/main/assets/models/tengu-superres.tflite')
+          m=tflite.Model.GetRootAsModel(p.read_bytes(),0)
+          g=m.Subgraphs(0)
+          shapes=[]
+          for tid in [g.Inputs(0),g.Outputs(0)]:
+              tensor=g.Tensors(tid)
+              shape=[tensor.Shape(i) for i in range(tensor.ShapeLength())]
+              shapes.append((shape,tensor.Type()))
+          print('Super-resolution input/output tensors:',shapes,flush=True)
+          expected=[([1,128,128,3],0),([1,512,512,3],0)]
+          if shapes != expected:
+              raise RuntimeError('Android photo renderer expects NHWC float32; model differs: '+str(shapes))
           PY
-          curl --fail --location --retry 3 --connect-timeout 30 \
-            'https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/LICENSE' \
-            -o app/src/main/assets/TENGU_MODEL_LICENSE.txt
-          printf '%s\n' 'Tengu AI bundles third-party pretrained Qwen3-1.7B IQ3_XXS under Apache-2.0, quantized by bartowski. SHA256 verified by release process. Offline text stays on-device.' > app/src/main/assets/TENGU_MODEL_NOTICE.txt
       - name: Compile Tengu AI Android APK
         working-directory: Tengu_Android
         run: |
@@ -104,10 +152,10 @@ jobs:
           old='buildTypes { release { minifyEnabled false } }'
           assert old in s
           s=s.replace(old,"""buildTypes {
-              debug { applicationIdSuffix '.smart84' }
+              debug { applicationIdSuffix '.smart85' }
               release { minifyEnabled false }
           }""")
-          assert "versionName '8.4-alpha1'" in s
+          assert "versionName '8.5-alpha1'" in s
           p.write_text(s)
           m=Path('app/src/main/AndroidManifest.xml').read_text()
           assert 'android:label="Tengu AI"' in m, 'App must be branded Tengu AI'
@@ -117,26 +165,26 @@ jobs:
         run: |
           set -euo pipefail
           test -s Tengu_Android/app/build/outputs/apk/debug/app-debug.apk
-          cp Tengu_Android/app/build/outputs/apk/debug/app-debug.apk Tengu_AI_8.4_alpha1.apk
-          size=$(stat -c '%s' Tengu_AI_8.4_alpha1.apk)
-          test "$size" -gt 700000000
-          test "$size" -lt 1000000000
-          echo "APK bytes: $(stat -c '%s' Tengu_AI_8.4_alpha1.apk)"
+          cp Tengu_Android/app/build/outputs/apk/debug/app-debug.apk Tengu_AI_8.5_alpha1.apk
+          size=$(stat -c '%s' Tengu_AI_8.5_alpha1.apk)
+          test "$size" -gt 1800000000
+          test "$size" -lt 2147483648
+          echo "APK bytes: $(stat -c '%s' Tengu_AI_8.5_alpha1.apk)"
       - name: Upload Tengu AI test APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Tengu-AI-8.4-APK
-          path: Tengu_AI_8.4_alpha1.apk
+          name: Tengu-AI-8.5-APK
+          path: Tengu_AI_8.5_alpha1.apk
           if-no-files-found: error
           compression-level: 0
-      - name: Publish Tengu AI 8.3 APK in GitHub Releases
+      - name: Publish Tengu AI 8.5 APK in GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view v8.4-alpha1 >/dev/null 2>&1; then
-            gh release upload v8.4-alpha1 Tengu_AI_8.4_alpha1.apk --clobber
+          if gh release view v8.5-alpha1 >/dev/null 2>&1; then
+            gh release upload v8.5-alpha1 Tengu_AI_8.5_alpha1.apk --clobber
           else
-            gh release create v8.4-alpha1 Tengu_AI_8.4_alpha1.apk \
-              --title 'Tengu AI 8.4 Alpha 1' --prerelease --latest=false \
-              --notes 'Experimental Tengu AI Android APK with Qwen3-1.7B IQ3_XXS offline model bundled and SHA verified. One anime background for all models. Tengu-4 answers using same base model with extended prompting; exact access key unchanged. Early local Tengu Agent generates code and exports it but does not execute it. Heavy quantization may reduce accuracy and speed; untested on real Android. Other internet image/search features remain third-party opt-in. Separate test app ID to protect existing installation.'
+            gh release create v8.5-alpha1 Tengu_AI_8.5_alpha1.apk \
+              --title 'Tengu AI 8.5 Alpha 1' --prerelease --latest=false \
+              --notes 'Experimental Tengu AI 8.5 Android: bundled Qwen3-4B-Instruct-2507 IQ3_M, local Real-ESRGAN photo super-resolution, Tengu Agent private workspace and restricted JavaScript tests. Model checksums verified in CI. Not yet proven on an Android device. On-device privacy for offline tools; online image generation/search remain optional external services. Separate test app to protect current chats.'
           fi
