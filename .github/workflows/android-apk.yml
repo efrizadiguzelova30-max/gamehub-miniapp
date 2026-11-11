@@ -1,4 +1,4 @@
-name: Tengu AI 8.2 — Android APK
+name: Tengu Evolution — Bundled Offline APK
 on:
   workflow_dispatch:
   push:
@@ -50,7 +50,78 @@ jobs:
       - name: Fetch llama.cpp source
         working-directory: Tengu_Android
         run: bash tools/get_llama_cpp.sh
-      - name: Compile side-by-side Tengu 8.2 APK
+      - name: Prepare bundled local AI integration
+        working-directory: Tengu_Android
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          java=Path('app/src/main/java/app/tengu/assistant/MainActivity.java')
+          s=java.read_text()
+          anchor='    private File modelFile() { return new File(new File(getFilesDir(), "models"), MODEL_NAME); }'
+          assert anchor in s
+          code="""    /** Install bundled GGUF on first run. This does not use the internet. */
+              private void installBundledModel() {
+                  engineQueue.execute(() -> {
+                      File target = modelFile();
+                      File dir = target.getParentFile();
+                      File temp = new File(dir, MODEL_NAME + ".bundled.partial");
+                      try {
+                          if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("No model directory");
+                          if (target.isFile() && target.length() == OFFICIAL_MODEL_SIZE) return;
+                          if (new StatFs(dir.getAbsolutePath()).getAvailableBytes() < OFFICIAL_MODEL_SIZE + 67108864L)
+                              throw new IllegalStateException("Need about 600 MB free for first run");
+                          reportModelProgress("Подготовка встроенной нейросети...");
+                          long count = 0;
+                          try (InputStream input = getAssets().open("models/" + MODEL_NAME);
+                               OutputStream output = new FileOutputStream(temp)) {
+                              byte[] buffer = new byte[1048576]; int n;
+                              while ((n = input.read(buffer)) != -1) {
+                                  count += n;
+                                  if (count > OFFICIAL_MODEL_SIZE) throw new IllegalStateException("Bad bundled model size");
+                                  output.write(buffer, 0, n);
+                              }
+                          }
+                          if (count != OFFICIAL_MODEL_SIZE ||
+                              !OFFICIAL_MODEL_SHA.equalsIgnoreCase(sha256(temp)))
+                              throw new IllegalStateException("Bundled GGUF checksum mismatch");
+                          if (LocalLlm.AVAILABLE) LocalLlm.unload();
+                          if (!temp.renameTo(target))
+                              java.nio.file.Files.move(temp.toPath(), target.toPath(),
+                                  java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                          prefs().edit().putString("modelImported", "Tengu bundled Qwen2.5").apply();
+                          reportModelProgress("Tengu готова! Можно общаться без интернета.");
+                      } catch (Exception ex) {
+                          Log.e("Tengu", "Bundled model", ex);
+                          reportModelProgress("Ошибка установки встроенной модели: " + ex.getMessage());
+                      } finally {
+                          if (temp.exists()) temp.delete();
+                      }
+                  });
+              }
+          """
+          s=s.replace(anchor,anchor+'\n'+code)
+          load='        web.loadUrl("https://" + ASSET_HOST + "/assets/index.html");'
+          assert load in s
+          s=s.replace(load,load+'\n        installBundledModel();')
+          java.write_text(s)
+          gradle=Path('app/build.gradle')
+          b=gradle.read_text()
+          assert "versionName '8.2-alpha1'" in b
+          b=b.replace("versionCode 4","versionCode 5").replace("versionName '8.2-alpha1'","versionName '8.3-evolution-bundled'")
+          b=b.replace("    externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt') } }",
+                      "    androidResources { noCompress += ['gguf'] }\n    externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt') } }")
+          gradle.write_text(b)
+          PY
+      - name: Fetch verified offline GGUF for inclusion in APK
+        working-directory: Tengu_Android
+        run: |
+          mkdir -p app/src/main/assets/models
+          curl -fL --retry 5 --retry-delay 5 --connect-timeout 30 \
+            "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf" \
+            -o app/src/main/assets/models/tengu-model.gguf
+          echo "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db  app/src/main/assets/models/tengu-model.gguf" | sha256sum -c -
+          test "$(stat -c%s app/src/main/assets/models/tengu-model.gguf)" = "491400032"
+      - name: Compile Tengu Evolution APK
         working-directory: Tengu_Android
         run: |
           # Each GitHub runner has its own debug signing key. Separate package ID
@@ -62,30 +133,30 @@ jobs:
           old = 'buildTypes { release { minifyEnabled false } }'
           assert old in src, 'Build types configuration changed'
           replacement = """buildTypes {
-              debug { applicationIdSuffix '.alpha' }
+              debug { applicationIdSuffix '.evolution' }
               release { minifyEnabled false }
           }"""
           p.write_text(src.replace(old, replacement))
           PY
-          sed -i 's/android:label="Tengu AI"/android:label="Tengu 8.2 Test"/' app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="Tengu AI"/android:label="Tengu Evolution"/' app/src/main/AndroidManifest.xml
           grep -F "applicationIdSuffix '.alpha'" app/build.gradle
           gradle --no-daemon :app:assembleDebug
       - name: Prepare APK
         run: |
           test -s Tengu_Android/app/build/outputs/apk/debug/app-debug.apk
-          cp Tengu_Android/app/build/outputs/apk/debug/app-debug.apk Tengu_AI_8.2_alpha1.apk
+          cp Tengu_Android/app/build/outputs/apk/debug/app-debug.apk Tengu_AI_8.3_Evolution_Bundled.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Tengu-8.2-alpha1-APK
-          path: Tengu_AI_8.2_alpha1.apk
+          name: Tengu-8.3-Evolution-Bundled-APK
+          path: Tengu_AI_8.3_Evolution_Bundled.apk
           if-no-files-found: error
       - name: Publish direct APK in GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view v8.2-alpha1 >/dev/null 2>&1; then
-            gh release upload v8.2-alpha1 Tengu_AI_8.2_alpha1.apk --clobber
+          if gh release view v8.3-evolution-bundled >/dev/null 2>&1; then
+            gh release upload v8.3-evolution-bundled Tengu_AI_8.3_Evolution_Bundled.apk --clobber
           else
-            gh release create v8.2-alpha1 Tengu_AI_8.2_alpha1.apk --title 'Tengu AI 8.2 Alpha 1' --notes 'Experimental Tengu Android alpha with model download, improved knowledge API, opt-in AI image requests, and original background music. User-device end-to-end verification is still required.' --prerelease --latest=false
+            gh release create v8.3-evolution-bundled Tengu_AI_8.3_Evolution_Bundled.apk --title 'Tengu Evolution 8.3 Bundled Alpha' --notes 'Experimental Evolution milestone: one APK with bundled Qwen2.5 0.5B GGUF. First-run local extraction requires about 600 MB free. Tengu-4 and Agent are not implemented yet. Device testing required.' --prerelease --latest=false
           fi
