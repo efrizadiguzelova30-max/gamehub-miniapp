@@ -19,7 +19,7 @@ jobs:
           base64 -d Tengu_AI_8_2_Alpha1_patch.base64.txt > /tmp/tengu82.zip
           unzip -t /tmp/tengu82.zip >/dev/null
           unzip -q -o /tmp/tengu82.zip
-          base64 -d Tengu_AI_8_3_Bundled_Hotfix.b64.txt > /tmp/tengu83.zip
+          base64 -d Tengu_AI_8_3_patch.base64.txt > /tmp/tengu83.zip
           unzip -t /tmp/tengu83.zip >/dev/null
           unzip -q -o /tmp/tengu83.zip
           test -s Tengu_Android/app/src/main/res/raw/tengu_theme.ogg
@@ -67,7 +67,10 @@ jobs:
             -o app/src/main/assets/models/tengu-model.gguf
           test "$(stat -c '%s' app/src/main/assets/models/tengu-model.gguf)" = 491400032
           echo '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db  app/src/main/assets/models/tengu-model.gguf' | sha256sum --check
-          cp TENGU_MODEL_NOTICE.txt app/src/main/assets/TENGU_MODEL_NOTICE.txt
+          curl --fail --location --retry 3 --connect-timeout 30 \
+            'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/LICENSE' \
+            -o app/src/main/assets/TENGU_MODEL_LICENSE.txt
+          printf '%s\n' 'Tengu AI uses Qwen2.5-0.5B-Instruct GGUF, a third-party Apache-2.0 model from Qwen. Chat inference runs on the phone.' > app/src/main/assets/TENGU_MODEL_NOTICE.txt
       - name: Compile Tengu AI Android APK
         working-directory: Tengu_Android
         run: |
