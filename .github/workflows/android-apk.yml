@@ -22,7 +22,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Android SDK command-line tools
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
       - name: Accept licenses and install build tools
         run: |
           yes | sdkmanager --licenses > /dev/null || true
