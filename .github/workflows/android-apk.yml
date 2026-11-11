@@ -61,55 +61,38 @@ jobs:
       - name: Fetch pinned llama.cpp source
         working-directory: Tengu_Android
         run: bash tools/get_llama_cpp.sh
-      - name: Fetch and verify Qwen3-1.7B IQ3_XXS model bundled in APK
+      - name: Download and SHA256-verify bundled Qwen3-1.7B GGUF
         working-directory: Tengu_Android
         run: |
           set -euo pipefail
           mkdir -p app/src/main/assets/models
+          curl --fail --location --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 3000 \
+            'https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/main/Qwen_Qwen3-1.7B-IQ3_XXS.gguf' \
+            -o app/src/main/assets/models/tengu-model.gguf
           python3 - <<'PY'
-          import hashlib, json, re, urllib.request, urllib.parse
           from pathlib import Path
-          repo='bartowski/Qwen_Qwen3-1.7B-GGUF'
-          u='https://huggingface.co/api/models/'+repo+'/tree/main?recursive=true'
-          with urllib.request.urlopen(urllib.request.Request(u,headers={'User-Agent':'TenguAI-Android-Build/8.4'}),timeout=40) as response:
-              nodes=json.load(response)
-          found=[x for x in nodes if x.get('path','').endswith('Qwen3-1.7B-IQ3_XXS.gguf')]
-          if len(found)!=1:
-              raise RuntimeError('Expected one Qwen3-1.7B IQ3_XXS GGUF, got '+str([x.get('path') for x in found]))
-          obj=found[0]
-          size=int(obj['size'])
-          lfs=obj.get('lfs') or {}
-          sha=lfs.get('sha256') or lfs.get('oid')
-          if not isinstance(sha,str) or not re.fullmatch(r'[0-9a-f]{64}',sha):
-              raise RuntimeError('Hugging Face did not provide a valid SHA256 hash')
-          if not (700_000_000 < size < 970_000_000):
-              raise RuntimeError('GGUF size outside verified under-1GB release budget: '+str(size))
-          url='https://huggingface.co/'+repo+'/resolve/main/'+urllib.parse.quote(obj['path'],safe='/')
-          model=Path('app/src/main/java/app/tengu/assistant/TenguBundledModel.java')
-          model.write_text('''package app.tengu.assistant;
-          /** Bundled pretrained GGUF from third-party Apache-2.0 weights; verified at build time. */
-          final class TenguBundledModel {
-              static final long SIZE = %dL;
-              static final String SHA256 = "%s";
-              static final String URL = "%s";
-              private TenguBundledModel() {}
-          }
-          '''%(size,sha,url),encoding='utf-8')
-          Path('/tmp/tengu84_model.json').write_text(json.dumps({'sha256':sha,'size':size,'url':url}))
-          print('VERIFIED MODEL:',obj['path'],size,'SHA256',sha)
+          import hashlib
+          p=Path('app/src/main/assets/models/tengu-model.gguf')
+          size=p.stat().st_size
+          expected='5c7649660c508f31f522ac7fa9e70fa03f989250ce9884cc3747f0e6c7443fbe'
+          actual=hashlib.sha256(p.read_bytes()).hexdigest()
+          assert actual==expected, 'Model SHA256 does not match the published Hugging Face digest'
+          assert 800_000_000 < size < 970_000_000, 'Model outside APK size limit'
+          url='https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/main/Qwen_Qwen3-1.7B-IQ3_XXS.gguf'
+          j=Path('app/src/main/java/app/tengu/assistant/TenguBundledModel.java')
+          j.write_text('package app.tengu.assistant;\n'
+                       'final class TenguBundledModel {\n'
+                       '    static final long SIZE = '+str(size)+'L;\n'
+                       '    static final String SHA256 = "'+expected+'";\n'
+                       '    static final String URL = "'+url+'";\n'
+                       '    private TenguBundledModel() {}\n'
+                       '}\n',encoding='utf-8')
+          print('Tengu AI Qwen3 model verified SHA256, bytes:',size)
           PY
-          python3 - <<'PY'
-          import json,subprocess
-          m=json.load(open('/tmp/tengu84_model.json'))
-          subprocess.run(['curl','--fail','--location','--retry','5','--retry-all-errors','--connect-timeout','30','--max-time','3000',m['url'],'-o','app/src/main/assets/models/tengu-model.gguf'],check=True)
-          actual=subprocess.check_output(['sha256sum','app/src/main/assets/models/tengu-model.gguf'],text=True).split()[0]
-          assert actual==m['sha256'], 'GGUF SHA256 verification failed'
-          from pathlib import Path
-          assert Path('app/src/main/assets/models/tengu-model.gguf').stat().st_size==m['size'], 'GGUF size mismatch'
-          print('MODEL VERIFIED AND BUNDLED')
-          PY
-          curl --fail --location --retry 3 --connect-timeout 30 'https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/LICENSE' -o app/src/main/assets/TENGU_MODEL_LICENSE.txt
-          printf '%s\n' 'Tengu AI uses Qwen3-1.7B GGUF IQ3_XXS from bartowski, Qwen. Apache-2.0, with heavy quantization. Offline text inference is local. Some image and search features use external services only with user permission.' > app/src/main/assets/TENGU_MODEL_NOTICE.txt
+          curl --fail --location --retry 3 --connect-timeout 30 \
+            'https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/LICENSE' \
+            -o app/src/main/assets/TENGU_MODEL_LICENSE.txt
+          printf '%s\n' 'Tengu AI bundles third-party pretrained Qwen3-1.7B IQ3_XXS under Apache-2.0, quantized by bartowski. SHA256 verified by release process. Offline text stays on-device.' > app/src/main/assets/TENGU_MODEL_NOTICE.txt
       - name: Compile Tengu AI Android APK
         working-directory: Tengu_Android
         run: |
