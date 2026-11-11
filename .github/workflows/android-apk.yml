@@ -21,13 +21,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Use preinstalled Android SDK
+      - name: Setup Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+      - name: Accept licenses and install build tools
         run: |
-          test -n "${ANDROID_HOME:-}"
-          test -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" || command -v sdkmanager
           yes | sdkmanager --licenses > /dev/null || true
-      - name: Install build tools
-        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
