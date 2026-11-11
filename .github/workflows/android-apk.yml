@@ -55,7 +55,18 @@ jobs:
         run: |
           # Each GitHub runner has its own debug signing key. Separate package ID
           # protects the user's installed 8.1 app and chat history from uninstall.
-          sed -i "s/buildTypes { release { minifyEnabled false } }/buildTypes { debug { applicationIdSuffix '.alpha' } release { minifyEnabled false } }/" app/build.gradle
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/build.gradle')
+          src = p.read_text()
+          old = 'buildTypes { release { minifyEnabled false } }'
+          assert old in src, 'Build types configuration changed'
+          replacement = """buildTypes {
+              debug { applicationIdSuffix '.alpha' }
+              release { minifyEnabled false }
+          }"""
+          p.write_text(src.replace(old, replacement))
+          PY
           sed -i 's/android:label="Tengu AI"/android:label="Tengu 8.2 Test"/' app/src/main/AndroidManifest.xml
           grep -F "applicationIdSuffix '.alpha'" app/build.gradle
           gradle --no-daemon :app:assembleDebug
