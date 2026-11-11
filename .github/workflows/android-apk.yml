@@ -1,0 +1,61 @@
+name: Tengu AI — Android APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Tengu sources
+        uses: actions/checkout@v4
+      - name: Unpack complete Android project
+        run: |
+          unzip -t Tengu_AI_8_1_Alpha2_Android_Source.zip
+          unzip -q Tengu_AI_8_1_Alpha2_Android_Source.zip
+          test -f Tengu_Android/app/src/main/AndroidManifest.xml
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Install Japanese launcher icon
+        working-directory: Tengu_Android
+        run: |
+          python3 -m pip install --user Pillow
+          python3 tools/install_avatar.py
+      - name: Fetch llama.cpp source
+        working-directory: Tengu_Android
+        run: bash tools/get_llama_cpp.sh
+      - name: Compile Tengu APK
+        working-directory: Tengu_Android
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Prepare APK
+        run: |
+          test -s Tengu_Android/app/build/outputs/apk/debug/app-debug.apk
+          cp Tengu_Android/app/build/outputs/apk/debug/app-debug.apk Tengu_AI_8.1_alpha2.apk
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tengu-8.1-alpha2-APK
+          path: Tengu_AI_8.1_alpha2.apk
+          if-no-files-found: error
+      - name: Publish direct APK in GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view v8.1-alpha2 >/dev/null 2>&1; then
+            gh release upload v8.1-alpha2 Tengu_AI_8.1_alpha2.apk --clobber
+          else
+            gh release create v8.1-alpha2 Tengu_AI_8.1_alpha2.apk --title 'Tengu AI 8.1 Alpha 2' --notes 'Experimental Android APK with native offline GGUF integration. Import a compatible GGUF after installation. Local inference has not yet been verified on a user device.' --prerelease --latest=false
+          fi
