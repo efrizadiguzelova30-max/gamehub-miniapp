@@ -1,4 +1,4 @@
-name: Tengu AI 8.5 — Android APK
+name: Tengu AI 8.5 — direct GitHub Release
 on:
   workflow_dispatch:
   push:
@@ -147,21 +147,14 @@ jobs:
           test "$size" -gt 1800000000
           test "$size" -lt 2147483648
           echo "APK bytes: $(stat -c '%s' Tengu_AI_8.5_alpha1.apk)"
-      - name: Upload Tengu AI test APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Tengu-AI-8.5-APK
-          path: Tengu_AI_8.5_alpha1.apk
-          if-no-files-found: error
-          compression-level: 0
+      # GitHub Artifacts upload previously failed for a ~2.05 GB APK.
+      # Publish the validated APK directly to the GitHub Release instead.
       - name: Publish Tengu AI 8.5 APK in GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view v8.5-alpha1 >/dev/null 2>&1; then
-            gh release upload v8.5-alpha1 Tengu_AI_8.5_alpha1.apk --clobber
-          else
-            gh release create v8.5-alpha1 Tengu_AI_8.5_alpha1.apk \
-              --title 'Tengu AI 8.5 Alpha 1' --prerelease --latest=false \
-              --notes 'Experimental Tengu AI 8.5 Android: bundled Qwen3-4B-Instruct-2507 IQ3_M, local Real-ESRGAN photo super-resolution, Tengu Agent private workspace and restricted JavaScript tests. Model checksums verified in CI. Not yet proven on an Android device. On-device privacy for offline tools; online image generation/search remain optional external services. Separate test app to protect current chats.'
-          fi
+          gh release view v8.5-alpha1 >/dev/null 2>&1 || gh release create v8.5-alpha1 \
+            --title 'Tengu AI 8.5 Alpha 1' --prerelease --latest=false \
+            --notes 'Experimental Android APK: Qwen3-4B-Instruct-2507 IQ3_M + local Real-ESRGAN super-resolution + Tengu Agent workspace. Models verified in CI. Agent cannot yet match GPT-6 programming capability, and offline Android real-device validation remains necessary.'
+          GH_PROMPT_DISABLED=1 gh release upload v8.5-alpha1 Tengu_AI_8.5_alpha1.apk --clobber
+          gh release view v8.5-alpha1 --json assets --jq '.assets[] | select(.name == "Tengu_AI_8.5_alpha1.apk") | .name + " " + (.size|tostring)'
